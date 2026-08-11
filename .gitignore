@@ -4,6 +4,7 @@
 .env
 .env.*
 !.env.example
+local-secrets/
 openai_api_service_key.txt
 openai_vector_store_id.txt
 generated_credentials.txt
@@ -27,6 +28,7 @@ build/
 .idea/
 .vscode/
 *.log
+*.zip
 
 # Local test and runtime data
 .test-data/
