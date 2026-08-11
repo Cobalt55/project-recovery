@@ -28,6 +28,19 @@ def test_sanitized_metadata_has_a_real_serialized_byte_bound():
     assert len(json.dumps(sanitized, separators=(",", ":")).encode("utf-8")) <= MAX_CONTEXT_BYTES
 
 
+def test_sanitized_metadata_accepts_extreme_integer_values():
+    """Python's integer string guard cannot make untrusted metadata persistence fail."""
+    extreme_integer = 10**5000
+    metadata = {
+        "n": extreme_integer,
+        "nested": [extreme_integer, {"mixed": [1, 2.5, extreme_integer]}],
+    }
+
+    sanitized = sanitize_metadata(metadata)
+
+    assert len(json.dumps(sanitized, separators=(",", ":")).encode("utf-8")) <= MAX_CONTEXT_BYTES
+
+
 def test_message_children_cannot_reference_another_conversation():
     """The database enforces message/conversation consistency for chat children."""
     expected = {"message_id", "conversation_id"}

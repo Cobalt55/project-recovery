@@ -10,6 +10,7 @@ MAX_CONTEXT_STRING_LENGTH = 4_000
 MAX_CONTEXT_ITEMS = 100
 MAX_CONTEXT_DEPTH = 8
 MAX_CONTEXT_BYTES = 16_000
+MAX_INTEGER_BITS = 4_096
 REDACTED = "[REDACTED]"
 _SENSITIVE_KEY = re.compile(r"(api[_-]?key|authorization|cookie|password|secret|token)", re.I)
 _SENSITIVE_VALUE = re.compile(
@@ -64,8 +65,10 @@ def sanitize_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:
             ]
         if isinstance(item, str):
             return take_text(item)
-        if item is None or isinstance(item, bool | int):
+        if item is None or isinstance(item, bool):
             return item
+        if isinstance(item, int):
+            return item if item.bit_length() <= MAX_INTEGER_BITS else "[TRUNCATED]"
         if isinstance(item, float):
             return item if math.isfinite(item) else take_text(str(item))
         return take_text(str(item))
