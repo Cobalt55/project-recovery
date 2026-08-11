@@ -1,6 +1,6 @@
 # Project Recovery Chatbot Design
 
-Date: 2026-08-11  
+Date: 2026-08-11
 Status: Approved for implementation
 
 ## 1. Purpose
@@ -179,7 +179,7 @@ Allowed models:
 - `gpt-5.6-terra`
 - `gpt-5.6-sol`
 
-Default model: `gpt-5.6-terra`  
+Default model: `gpt-5.6-terra`
 Default reasoning effort: `medium`
 
 Allowed reasoning efforts:
@@ -352,7 +352,7 @@ Chainlit custom CSS/JavaScript and the admin templates share design tokens so th
 
 Use the verified subscription belonging to `amusheno@outlook.com`.
 
-Region: East US 2  
+Region: East US 2
 Resource group: existing `recovery-az-web-app_group`
 
 Resources:
