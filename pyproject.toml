@@ -40,4 +40,9 @@ files = ["src"]
 strict = true
 warn_unused_configs = true
 disallow_subclassing_any = false
+
+# pydantic-settings is a third-party package without complete mypy traversal
+# support in the Windows environment; keep normal imports for project code.
+[[tool.mypy.overrides]]
+module = ["pydantic_settings", "pydantic_settings.*"]
 follow_imports = "skip"

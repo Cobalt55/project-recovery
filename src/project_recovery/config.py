@@ -37,7 +37,7 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr
     openai_vector_store_id: str
-    database_url: str
+    database_url: SecretStr
     app_session_secret: SecretStr
     chainlit_auth_secret: SecretStr
 
