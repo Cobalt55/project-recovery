@@ -1,0 +1,33 @@
+.worktrees/
+
+# Local secrets and environment
+.env
+.env.*
+!.env.example
+openai_api_service_key.txt
+openai_vector_store_id.txt
+generated_credentials.txt
+az-amusheno.ps1
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Build and editor artifacts
+dist/
+build/
+*.egg-info/
+.idea/
+.vscode/
+*.log
+
+# Local test and runtime data
+.test-data/
+uploads/
