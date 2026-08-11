@@ -1,6 +1,7 @@
 """Async PostgreSQL database lifecycle boundary."""
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 
 from pydantic import SecretStr
 from sqlalchemy import text
@@ -21,6 +22,12 @@ class Database:
     def session(self) -> async_sessionmaker[AsyncSession]:
         """Return the session factory used by repository boundaries."""
         return self._sessions
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[AsyncSession]:
+        """Provide one caller-owned transaction for composed repository writes."""
+        async with self._sessions.begin() as session:
+            yield session
 
     async def ping(self) -> bool:
         """Return whether PostgreSQL can accept a minimal query."""

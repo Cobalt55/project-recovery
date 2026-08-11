@@ -6,6 +6,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from project_recovery.models import ExceptionLog, PromptRun, ToolRun, utc_now
@@ -139,33 +140,36 @@ class TelemetryRepository:
         stack_trace: str | None,
         context: dict[str, object] | None,
     ) -> ExceptionLog:
-        fingerprint = hashlib.sha256(f"{exception_type}:{request_path}".encode()).hexdigest()
+        sanitized_path = request_path.split("?", 1)[0][:2048]
+        fingerprint = hashlib.sha256(f"{exception_type}:{sanitized_path}".encode()).hexdigest()
         async with self._sessions() as session:
-            existing = await session.scalar(
-                select(ExceptionLog).where(
-                    ExceptionLog.fingerprint == fingerprint,
-                    ExceptionLog.request_path == request_path[:2048],
+            now = utc_now()
+            entry = (
+                insert(ExceptionLog)
+                .values(
+                    user_id=user_id,
+                    fingerprint=fingerprint,
+                    request_path=sanitized_path,
+                    exception_type=exception_type[:255],
+                    message=redact_text(message, 4000),
+                    stack_trace=redact_text(stack_trace, 32000),
+                    context=sanitize_metadata(context),
+                    occurrence_count=1,
+                    first_seen_at=now,
+                    last_seen_at=now,
                 )
+                .on_conflict_do_update(
+                    constraint="uq_exception_logs_group",
+                    set_={
+                        "occurrence_count": ExceptionLog.occurrence_count + 1,
+                        "last_seen_at": now,
+                    },
+                )
+                .returning(ExceptionLog.id)
             )
-            if existing is not None:
-                existing.occurrence_count += 1
-                existing.last_seen_at = utc_now()
-                await session.commit()
-                await session.refresh(existing)
-                return existing
-            entry = ExceptionLog(
-                user_id=user_id,
-                fingerprint=fingerprint,
-                request_path=request_path[:2048],
-                exception_type=exception_type[:255],
-                message=redact_text(message, 4000),
-                stack_trace=redact_text(stack_trace, 32000),
-                context=sanitize_metadata(context),
-            )
-            session.add(entry)
+            exception_id = await session.scalar(entry)
             await session.commit()
-            await session.refresh(entry)
-            return entry
+            return await session.get_one(ExceptionLog, exception_id)
 
     async def get_exception(self, exception_id: UUID) -> ExceptionLog | None:
         async with self._sessions() as session:

@@ -94,6 +94,20 @@ def postgres_url() -> Iterator[str]:
             capture_output=True,
             text=True,
         )
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "downgrade", "base"],
+            check=True,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            check=True,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
         yield url
     finally:
         subprocess.run(["docker", "stop", container_id], check=False, capture_output=True)
@@ -166,7 +180,7 @@ async def test_repositories_persist_and_retrieve_related_records(database: Datab
         result_count=1,
         result_summary="One matching resource",
         arguments={"query": "changed"},
-        output={"api_key": "must-not-persist"},
+        output={"Authorization": "Bearer must-not-persist"},
     )
     feedback = await chats.record_feedback(
         user_id=user.id,
@@ -180,12 +194,12 @@ async def test_repositories_persist_and_retrieve_related_records(database: Datab
         tool_summary="file_search",
     )
     exception = await telemetry.record_exception(
-        request_path="/chat",
+        request_path="/chat?token=must-not-persist",
         user_id=user.id,
         exception_type="RuntimeError",
         message="unexpected failure",
         stack_trace="traceback",
-        context={"authorization": "must-not-persist"},
+        context={"authorization": "Bearer must-not-persist"},
     )
     resource = await knowledge.create_queued(
         name="guide.md",
@@ -203,10 +217,11 @@ async def test_repositories_persist_and_retrieve_related_records(database: Datab
     assert (await chats.get_message(message.id)).content == "What changed?"
     assert (await telemetry.get_prompt_run(prompt_run.id)).status == "completed"
     stored_tool_run = await telemetry.get_tool_run(tool_run.id)
-    assert stored_tool_run.output["api_key"] == "[REDACTED]"
+    assert stored_tool_run.output["Authorization"] == "[REDACTED]"
     assert (await chats.get_feedback(feedback.id)).rating == 1
     stored_exception = await telemetry.get_exception(exception.id)
     assert stored_exception.context["authorization"] == "[REDACTED]"
+    assert stored_exception.request_path == "/chat"
     assert (await knowledge.get(resource.id)).status == "queued"
 
 

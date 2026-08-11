@@ -233,7 +233,7 @@ def upgrade() -> None:
         ("ix_chat_feedback_conversation_id", ["conversation_id"]),
         ("ix_chat_feedback_message_id", ["message_id"]),
         ("ix_chat_feedback_trace_id", ["trace_id"]),
-        ("ix_chat_feedback_created_at", ["created_at"]),
+        ("ix_chat_feedback_created", ["created_at"]),
     ):
         op.create_index(name, "chat_feedback", columns)
 
@@ -250,6 +250,7 @@ def upgrade() -> None:
         sa.Column("occurrence_count", sa.Integer(), nullable=False),
         timestamp_column("first_seen_at", nullable=False),
         timestamp_column("last_seen_at", nullable=False),
+        sa.UniqueConstraint("fingerprint", "request_path", name="uq_exception_logs_group"),
     )
     for name, columns in (
         ("ix_exception_logs_user_id", ["user_id"]),

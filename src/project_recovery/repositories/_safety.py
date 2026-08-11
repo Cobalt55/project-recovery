@@ -6,10 +6,12 @@ from typing import Any
 
 MAX_CONTEXT_STRING_LENGTH = 4_000
 MAX_CONTEXT_ITEMS = 100
+MAX_CONTEXT_DEPTH = 8
+MAX_CONTEXT_BYTES = 16_000
 REDACTED = "[REDACTED]"
 _SENSITIVE_KEY = re.compile(r"(api[_-]?key|authorization|cookie|password|secret|token)", re.I)
 _SENSITIVE_VALUE = re.compile(
-    r"(?i)(api[_-]?key|authorization|cookie|password|secret|token)(\s*[:=]\s*)[^\s,;]+"
+    r"(?im)(api[_-]?key|authorization|cookie|password|secret|token)(\s*[:=]\s*)[^\r\n,;]+"
 )
 
 
@@ -32,21 +34,37 @@ def sanitize_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:
     if value is None:
         return {}
 
-    def sanitize(item: Any, key: str | None = None) -> Any:
+    remaining = MAX_CONTEXT_BYTES
+
+    def take_text(item: str) -> str:
+        nonlocal remaining
+        allowed = max(remaining, 0)
+        result = redact_text(item, min(MAX_CONTEXT_STRING_LENGTH, allowed)) or ""
+        remaining -= len(result.encode("utf-8"))
+        return result
+
+    def sanitize(item: Any, key: str | None = None, depth: int = 0) -> Any:
+        if depth >= MAX_CONTEXT_DEPTH:
+            return "[TRUNCATED]"
         if key and _SENSITIVE_KEY.search(key):
             return REDACTED
         if isinstance(item, Mapping):
             return {
-                str(child_key)[:128]: sanitize(child_value, str(child_key))
+                take_text(str(child_key)[:128]): sanitize(child_value, str(child_key), depth + 1)
                 for child_key, child_value in list(item.items())[:MAX_CONTEXT_ITEMS]
+                if remaining > 0
             }
         if isinstance(item, list | tuple):
-            return [sanitize(child) for child in item[:MAX_CONTEXT_ITEMS]]
+            return [
+                sanitize(child, depth=depth + 1)
+                for child in item[:MAX_CONTEXT_ITEMS]
+                if remaining > 0
+            ]
         if isinstance(item, str):
-            return redact_text(item, MAX_CONTEXT_STRING_LENGTH)
+            return take_text(item)
         if item is None or isinstance(item, bool | int | float):
             return item
-        return bounded_text(str(item), MAX_CONTEXT_STRING_LENGTH)
+        return take_text(str(item))
 
     sanitized = sanitize(value)
     assert isinstance(sanitized, dict)

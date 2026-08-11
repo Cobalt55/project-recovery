@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -217,6 +218,7 @@ class ExceptionLog(UUIDRecord, Base):
     __tablename__ = "exception_logs"
     __table_args__ = (
         Index("ix_exception_logs_fingerprint_last_seen", "fingerprint", "last_seen_at"),
+        UniqueConstraint("fingerprint", "request_path", name="uq_exception_logs_group"),
     )
 
     user_id: Mapped[UUID | None] = mapped_column(
