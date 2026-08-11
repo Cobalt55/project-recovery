@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -98,6 +99,7 @@ class Message(UUIDRecord, Base):
     __tablename__ = "messages"
     __table_args__ = (
         CheckConstraint("role IN ('user', 'assistant', 'system', 'tool')", name="ck_messages_role"),
+        UniqueConstraint("id", "conversation_id", name="uq_messages_id_conversation"),
         Index("ix_messages_conversation_created", "conversation_id", "created_at"),
     )
 
@@ -112,6 +114,13 @@ class Message(UUIDRecord, Base):
 
 class MessageAttachment(UUIDRecord, Base):
     __tablename__ = "message_attachments"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["message_id", "conversation_id"],
+            ["messages.id", "messages.conversation_id"],
+            name="fk_message_attachments_message_conversation",
+        ),
+    )
 
     conversation_id: Mapped[UUID] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), index=True
@@ -193,6 +202,11 @@ class ChatFeedback(UUIDRecord, Base):
     __tablename__ = "chat_feedback"
     __table_args__ = (
         CheckConstraint("rating IN (-1, 1)", name="ck_chat_feedback_rating"),
+        ForeignKeyConstraint(
+            ["message_id", "conversation_id"],
+            ["messages.id", "messages.conversation_id"],
+            name="fk_chat_feedback_message_conversation",
+        ),
         Index("ix_chat_feedback_created", "created_at"),
     )
 

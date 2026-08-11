@@ -7,13 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from project_recovery.models import KnowledgeResource, utc_now
 from project_recovery.repositories._safety import bounded_text, sanitize_metadata
+from project_recovery.repositories._session import RepositoryBase
 
 
-class KnowledgeRepository:
+class KnowledgeRepository(RepositoryBase):
     """Persist recoverable shared Knowledge resource ingestion state."""
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
-        self._sessions = sessions
+    def __init__(self, sessions: async_sessionmaker[AsyncSession] | AsyncSession) -> None:
+        super().__init__(sessions)
 
     async def create_queued(
         self,
@@ -36,7 +37,7 @@ class KnowledgeRepository:
         )
         async with self._sessions() as session:
             session.add(resource)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(resource)
         return resource
 
@@ -74,5 +75,5 @@ class KnowledgeRepository:
         )
         async with self._sessions() as session:
             result = await session.execute(statement)
-            await session.commit()
+            await self._commit(session)
             return result.rowcount == 1

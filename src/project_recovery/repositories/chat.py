@@ -13,13 +13,14 @@ from project_recovery.repositories._safety import (
     page_offset,
     sanitize_metadata,
 )
+from project_recovery.repositories._session import RepositoryBase
 
 
-class ChatRepository:
+class ChatRepository(RepositoryBase):
     """Persist application-owned conversation history without automatic expiry."""
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
-        self._sessions = sessions
+    def __init__(self, sessions: async_sessionmaker[AsyncSession] | AsyncSession) -> None:
+        super().__init__(sessions)
 
     async def create_thread(
         self,
@@ -36,7 +37,7 @@ class ChatRepository:
         )
         async with self._sessions() as session:
             session.add(conversation)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(conversation)
         return conversation
 
@@ -64,7 +65,7 @@ class ChatRepository:
             conversation = await session.get(Conversation, conversation_id)
             if conversation is not None:
                 conversation.updated_at = utc_now()
-            await session.commit()
+            await self._commit(session)
             await session.refresh(message)
         return message
 
@@ -106,7 +107,7 @@ class ChatRepository:
             if conversation is None:
                 return None
             conversation.settings = sanitize_metadata(settings)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(conversation)
             return conversation
 
@@ -120,18 +121,22 @@ class ChatRepository:
         provider_file_id: str | None,
         metadata: dict[str, object],
     ) -> MessageAttachment:
-        attachment = MessageAttachment(
-            conversation_id=conversation_id,
-            message_id=message_id,
-            filename=filename[:255],
-            content_type=content_type[:127],
-            byte_size=byte_size,
-            provider_file_id=bounded_text(provider_file_id, 255),
-            metadata_json=sanitize_metadata(metadata),
-        )
         async with self._sessions() as session:
+            if message_id is not None:
+                message = await session.get(Message, message_id)
+                if message is None or message.conversation_id != conversation_id:
+                    raise ValueError("message belongs to a different conversation")
+            attachment = MessageAttachment(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                filename=filename[:255],
+                content_type=content_type[:127],
+                byte_size=byte_size,
+                provider_file_id=bounded_text(provider_file_id, 255),
+                metadata_json=sanitize_metadata(metadata),
+            )
             session.add(attachment)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(attachment)
         return attachment
 
@@ -147,20 +152,24 @@ class ChatRepository:
         trace_id: str | None,
         tool_summary: str | None,
     ) -> ChatFeedback:
-        feedback = ChatFeedback(
-            user_id=user_id,
-            conversation_id=conversation_id,
-            message_id=message_id,
-            rating=rating,
-            comment=bounded_text(comment, 2000),
-            context_snapshot=sanitize_metadata(context_snapshot),
-            model=bounded_text(model, 128),
-            trace_id=bounded_text(trace_id, 255),
-            tool_summary=bounded_text(tool_summary, 2000),
-        )
         async with self._sessions() as session:
+            if message_id is not None:
+                message = await session.get(Message, message_id)
+                if message is None or message.conversation_id != conversation_id:
+                    raise ValueError("message belongs to a different conversation")
+            feedback = ChatFeedback(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                rating=rating,
+                comment=bounded_text(comment, 2000),
+                context_snapshot=sanitize_metadata(context_snapshot),
+                model=bounded_text(model, 128),
+                trace_id=bounded_text(trace_id, 255),
+                tool_summary=bounded_text(tool_summary, 2000),
+            )
             session.add(feedback)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(feedback)
         return feedback
 

@@ -244,3 +244,69 @@ async def test_knowledge_transition_requires_the_expected_current_status(databas
     assert transitioned is True
     assert stale_transition is False
     assert (await knowledge.get(resource.id)).status == "processing"
+
+
+@pytest.mark.asyncio
+async def test_repositories_share_a_caller_transaction_and_roll_back_together(database: Database):
+    """A caller-owned transaction can atomically compose user and chat writes."""
+    with pytest.raises(RuntimeError, match="force rollback"):
+        async with database.transaction() as session:
+            users = UserRepository(session)
+            chats = ChatRepository(session)
+            user = await users.create(
+                email="rollback@example.test",
+                display_name="Rollback",
+                password_hash="hash",
+                roles=["user"],
+                force_password_change=False,
+            )
+            await chats.create_thread(
+                user_id=user.id,
+                chainlit_thread_id="rollback-thread",
+                openai_conversation_id="rollback-conversation",
+                settings={},
+            )
+            raise RuntimeError("force rollback")
+
+    assert await UserRepository(database.session()).get_by_email("rollback@example.test") is None
+
+
+@pytest.mark.asyncio
+async def test_chat_rejects_children_from_another_conversation(database: Database):
+    """Attachments and feedback cannot cross the durable conversation boundary."""
+    users = UserRepository(database.session())
+    chats = ChatRepository(database.session())
+    user = await users.create(
+        email="boundaries@example.test",
+        display_name="Boundaries",
+        password_hash="hash",
+        roles=["user"],
+        force_password_change=False,
+    )
+    first = await chats.create_thread(user.id, "first-thread", "first-conversation", {})
+    second = await chats.create_thread(user.id, "second-thread", "second-conversation", {})
+    message = await chats.append_message(second.id, "assistant", "Answer", None)
+
+    with pytest.raises(ValueError, match="message belongs to a different conversation"):
+        await chats.add_attachment(
+            first.id,
+            message.id,
+            "note.txt",
+            "text/plain",
+            1,
+            None,
+            {},
+        )
+
+    with pytest.raises(ValueError, match="message belongs to a different conversation"):
+        await chats.record_feedback(
+            user.id,
+            first.id,
+            message.id,
+            1,
+            None,
+            {},
+            None,
+            None,
+            None,
+        )

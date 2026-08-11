@@ -112,6 +112,7 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "role IN ('user', 'assistant', 'system', 'tool')", name="ck_messages_role"
         ),
+        sa.UniqueConstraint("id", "conversation_id", name="uq_messages_id_conversation"),
     )
     op.create_index("ix_messages_conversation_id", "messages", ["conversation_id"])
     op.create_index("ix_messages_provider_response_id", "messages", ["provider_response_id"])
@@ -132,6 +133,11 @@ def upgrade() -> None:
         sa.Column("provider_file_id", sa.String(length=255), nullable=True),
         sa.Column("metadata", postgresql.JSONB(), nullable=False),
         timestamp_column("created_at", nullable=False),
+        sa.ForeignKeyConstraint(
+            ["message_id", "conversation_id"],
+            ["messages.id", "messages.conversation_id"],
+            name="fk_message_attachments_message_conversation",
+        ),
     )
     op.create_index(
         "ix_message_attachments_conversation_id", "message_attachments", ["conversation_id"]
@@ -227,6 +233,11 @@ def upgrade() -> None:
         sa.Column("tool_summary", sa.String(length=2000), nullable=True),
         timestamp_column("created_at", nullable=False),
         sa.CheckConstraint("rating IN (-1, 1)", name="ck_chat_feedback_rating"),
+        sa.ForeignKeyConstraint(
+            ["message_id", "conversation_id"],
+            ["messages.id", "messages.conversation_id"],
+            name="fk_chat_feedback_message_conversation",
+        ),
     )
     for name, columns in (
         ("ix_chat_feedback_user_id", ["user_id"]),

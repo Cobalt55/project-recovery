@@ -17,13 +17,14 @@ from project_recovery.repositories._safety import (
     redact_text,
     sanitize_metadata,
 )
+from project_recovery.repositories._session import RepositoryBase
 
 
-class TelemetryRepository:
+class TelemetryRepository(RepositoryBase):
     """Persist indefinitely retained, sanitized telemetry records."""
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
-        self._sessions = sessions
+    def __init__(self, sessions: async_sessionmaker[AsyncSession] | AsyncSession) -> None:
+        super().__init__(sessions)
 
     async def start_prompt_run(
         self,
@@ -50,7 +51,7 @@ class TelemetryRepository:
         )
         async with self._sessions() as session:
             session.add(run)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(run)
         return run
 
@@ -82,7 +83,7 @@ class TelemetryRepository:
             run.provider_response_id = bounded_text(provider_response_id, 255)
             run.error_message = redact_text(error_message, 2000)
             run.finished_at = utc_now()
-            await session.commit()
+            await self._commit(session)
             await session.refresh(run)
             return run
 
@@ -122,7 +123,7 @@ class TelemetryRepository:
         )
         async with self._sessions() as session:
             session.add(run)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(run)
         return run
 
@@ -168,7 +169,7 @@ class TelemetryRepository:
                 .returning(ExceptionLog.id)
             )
             exception_id = await session.scalar(entry)
-            await session.commit()
+            await self._commit(session)
             return await session.get_one(ExceptionLog, exception_id)
 
     async def get_exception(self, exception_id: UUID) -> ExceptionLog | None:

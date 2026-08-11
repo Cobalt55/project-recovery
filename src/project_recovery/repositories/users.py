@@ -7,13 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from project_recovery.models import User, UserManagementEvent
 from project_recovery.repositories._safety import page_limit, page_offset, sanitize_metadata
+from project_recovery.repositories._session import RepositoryBase
 
 
-class UserRepository:
+class UserRepository(RepositoryBase):
     """Persist users and provide bounded administrator-facing queries."""
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
-        self._sessions = sessions
+    def __init__(self, sessions: async_sessionmaker[AsyncSession] | AsyncSession) -> None:
+        super().__init__(sessions)
 
     async def get_by_email(self, email: str) -> User | None:
         async with self._sessions() as session:
@@ -41,7 +42,7 @@ class UserRepository:
         )
         async with self._sessions() as session:
             session.add(user)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(user)
         return user
 
@@ -73,7 +74,7 @@ class UserRepository:
             if managed is None:
                 return None
             managed.is_active = is_active
-            await session.commit()
+            await self._commit(session)
             await session.refresh(managed)
             return managed
 
@@ -92,6 +93,6 @@ class UserRepository:
         )
         async with self._sessions() as session:
             session.add(event)
-            await session.commit()
+            await self._commit(session)
             await session.refresh(event)
         return event

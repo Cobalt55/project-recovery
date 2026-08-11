@@ -1,5 +1,7 @@
 """Bound and sanitize untrusted persistence context before it reaches PostgreSQL."""
 
+import json
+import math
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -62,12 +64,16 @@ def sanitize_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:
             ]
         if isinstance(item, str):
             return take_text(item)
-        if item is None or isinstance(item, bool | int | float):
+        if item is None or isinstance(item, bool | int):
             return item
+        if isinstance(item, float):
+            return item if math.isfinite(item) else take_text(str(item))
         return take_text(str(item))
 
     sanitized = sanitize(value)
     assert isinstance(sanitized, dict)
+    if len(json.dumps(sanitized, separators=(",", ":")).encode("utf-8")) > MAX_CONTEXT_BYTES:
+        return {"_truncated": "[TRUNCATED]"}
     return sanitized
 
 
