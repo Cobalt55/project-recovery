@@ -1,0 +1,78 @@
+"""Durable shared Knowledge ingestion persistence queries."""
+
+from uuid import UUID
+
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from project_recovery.models import KnowledgeResource, utc_now
+from project_recovery.repositories._safety import bounded_text, sanitize_metadata
+
+
+class KnowledgeRepository:
+    """Persist recoverable shared Knowledge resource ingestion state."""
+
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    async def create_queued(
+        self,
+        *,
+        name: str,
+        content_type: str,
+        byte_size: int,
+        category: str | None,
+        description: str | None,
+        metadata: dict[str, object] | None,
+    ) -> KnowledgeResource:
+        resource = KnowledgeResource(
+            name=name[:255],
+            content_type=content_type[:127],
+            byte_size=byte_size,
+            category=bounded_text(category, 128),
+            description=bounded_text(description, 2000),
+            status="queued",
+            metadata_json=sanitize_metadata(metadata),
+        )
+        async with self._sessions() as session:
+            session.add(resource)
+            await session.commit()
+            await session.refresh(resource)
+        return resource
+
+    async def get(self, resource_id: UUID) -> KnowledgeResource | None:
+        async with self._sessions() as session:
+            return await session.get(KnowledgeResource, resource_id)
+
+    async def transition(
+        self,
+        resource_id: UUID,
+        expected_status: str,
+        new_status: str,
+        **changes: object,
+    ) -> bool:
+        allowed = {"provider_file_id", "vector_store_file_id", "error_message", "metadata"}
+        values: dict[str, object] = {
+            "status": new_status[:32],
+            "updated_at": utc_now(),
+        }
+        for key, value in changes.items():
+            if key not in allowed:
+                raise ValueError(f"Unsupported knowledge transition field: {key}")
+            if key == "metadata":
+                values["metadata_json"] = sanitize_metadata(
+                    value if isinstance(value, dict) else None
+                )
+            elif key == "error_message":
+                values[key] = bounded_text(str(value) if value is not None else None, 2000)
+            else:
+                values[key] = bounded_text(str(value) if value is not None else None, 255)
+        statement = (
+            update(KnowledgeResource)
+            .where(KnowledgeResource.id == resource_id, KnowledgeResource.status == expected_status)
+            .values(**values)
+        )
+        async with self._sessions() as session:
+            result = await session.execute(statement)
+            await session.commit()
+            return result.rowcount == 1
