@@ -16,6 +16,9 @@ _SENSITIVE_KEY = re.compile(r"(api[_-]?key|authorization|cookie|password|secret|
 _SENSITIVE_VALUE = re.compile(
     r"(?im)(api[_-]?key|authorization|cookie|password|secret|token)(\s*[:=]\s*)[^\r\n,;]+"
 )
+_CREDENTIAL_URL = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@[^\s,;]+"
+)
 
 
 def bounded_text(value: str | None, limit: int) -> str | None:
@@ -29,7 +32,8 @@ def redact_text(value: str | None, limit: int) -> str | None:
     """Remove common credential assignments and apply a storage bound."""
     if value is None:
         return None
-    return _SENSITIVE_VALUE.sub(r"\1\2" + REDACTED, value)[:limit]
+    without_urls = _CREDENTIAL_URL.sub(REDACTED, value)
+    return _SENSITIVE_VALUE.sub(r"\1\2" + REDACTED, without_urls)[:limit]
 
 
 def sanitize_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:
