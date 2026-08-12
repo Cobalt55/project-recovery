@@ -24,6 +24,7 @@ _ADMIN_ITEMS = (
     ("Chat Feedback", "/admin/chat-feedback"),
     ("Model Usage", "/admin/model-usage"),
     ("Exceptions", "/admin/exceptions"),
+    ("Knowledge", "/admin/knowledge"),
     ("Tool Use", "/admin/tool-use"),
 )
 
@@ -78,3 +79,4 @@ class AppServices:
     chat: Any | None = None
     telemetry: Any | None = None
     chats: Any | None = None
+    knowledge: Any | None = None

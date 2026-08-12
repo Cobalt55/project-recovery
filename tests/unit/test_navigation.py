@@ -41,6 +41,7 @@ def test_navigation_marks_only_the_matching_admin_route_active() -> None:
         "Chat Feedback",
         "Model Usage",
         "Exceptions",
+        "Knowledge",
         "Tool Use",
     ]
     assert [item.label for item in items if item.active] == ["Logins"]

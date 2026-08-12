@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Knowledge · Project Recovery{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <h1>Knowledge</h1>
+  <p>Shared documents used by the chat’s hosted file search. Uploads are private and limited to 25 MiB.</p>
+</header>
+<section class="section-block" aria-labelledby="knowledge-upload">
+  <h2 id="knowledge-upload">Add a resource</h2>
+  <form class="stack" method="post" action="/admin/knowledge" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>File
+      <input type="file" name="upload" required accept=".pdf,.docx,.txt,.md">
+    </label>
+    <label>Category <input name="category" maxlength="64"></label>
+    <label>Description <input name="description" maxlength="512"></label>
+    <button class="button" type="submit">Upload</button>
+  </form>
+</section>
+<section class="section-block" aria-labelledby="knowledge-list">
+  <h2 id="knowledge-list">Resources</h2>
+  <form class="form-row" method="get">
+    <label>Search <input type="search" name="query" value="{{ query }}" maxlength="200"></label>
+    <label>Status <select name="status"><option value="">All</option>{% for status in statuses %}<option value="{{ status }}"{% if status == selected_status %} selected{% endif %}>{{ status }}</option>{% endfor %}</select></label>
+    <button class="button" type="submit">Filter</button>
+  </form>
+  {% if rows %}<div class="table-wrap"><table data-knowledge-table>
+    <thead><tr><th>Resource</th><th>Category</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead>
+    <tbody>{% for row in rows %}<tr data-resource-id="{{ row.id }}">
+      <td>{{ row.name }}<br><span>{{ row.description }} · {{ row.byte_size }} bytes</span></td>
+      <td>{{ row.category or "General" }}</td>
+      <td data-resource-status>{{ row.status }}{% if row.error %}<br><span>{{ row.error }}</span>{% endif %}</td>
+      <td>{{ row.updated_at }}</td>
+      <td class="actions">
+        {% if row.status == "error" %}<form method="post" action="/admin/knowledge/{{ row.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-quiet" type="submit">Retry</button></form>{% endif %}
+        {% if row.status != "deleted" %}<form method="post" action="/admin/knowledge/{{ row.id }}/delete" data-confirm-delete><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="confirm" value="delete"><button class="button button-quiet" type="submit">Delete</button></form>{% endif %}
+      </td>
+    </tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="supporting-copy">No Knowledge resources match this view.</p>{% endif %}
+  {% if has_next %}<p><a href="?offset={{ next_offset }}&limit={{ limit }}">Next page</a></p>{% endif %}
+</section>
+<script src="{{ url_for('static', path='knowledge.js') }}" defer></script>
+{% endblock %}

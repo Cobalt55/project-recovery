@@ -1,8 +1,10 @@
 """Durable shared Knowledge ingestion persistence queries."""
 
+from collections.abc import Sequence
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from project_recovery.models import KnowledgeResource, utc_now
@@ -45,6 +47,77 @@ class KnowledgeRepository(RepositoryBase):
         async with self._sessions() as session:
             return await session.get(KnowledgeResource, resource_id)
 
+    async def list_page(
+        self,
+        *,
+        query: str | None,
+        status: str | None,
+        offset: int,
+        limit: int,
+    ) -> Sequence[KnowledgeResource]:
+        """Return one bounded newest-first Knowledge page."""
+        statement = select(KnowledgeResource)
+        if query:
+            statement = statement.where(KnowledgeResource.name.ilike(f"%{query.strip()[:200]}%"))
+        if status:
+            statement = statement.where(KnowledgeResource.status == status[:32])
+        statement = (
+            statement.order_by(KnowledgeResource.updated_at.desc())
+            .offset(max(0, offset))
+            .limit(min(max(limit, 1), 100))
+        )
+        async with self._sessions() as session:
+            return (await session.scalars(statement)).all()
+
+    async def list_stale_processing(
+        self, before: datetime, limit: int = 100
+    ) -> Sequence[KnowledgeResource]:
+        """Return bounded interrupted work for startup recovery."""
+        statement = (
+            select(KnowledgeResource)
+            .where(
+                KnowledgeResource.status == "processing",
+                KnowledgeResource.updated_at < before,
+            )
+            .order_by(KnowledgeResource.updated_at.asc())
+            .limit(min(max(limit, 1), 100))
+        )
+        async with self._sessions() as session:
+            return (await session.scalars(statement)).all()
+
+    async def force_update(self, resource_id: UUID, **changes: object) -> KnowledgeResource | None:
+        """Update provider IDs and status after bounded recovery/cleanup work."""
+        allowed = {
+            "status",
+            "provider_file_id",
+            "vector_store_file_id",
+            "error_message",
+            "metadata",
+        }
+        values: dict[str, object] = {"updated_at": utc_now()}
+        for key, value in changes.items():
+            if key not in allowed:
+                raise ValueError(f"Unsupported knowledge field: {key}")
+            if key == "metadata":
+                values["metadata_json"] = sanitize_metadata(
+                    value if isinstance(value, dict) else None
+                )
+            elif key == "error_message":
+                values[key] = bounded_text(str(value) if value is not None else None, 2000)
+            elif key in {"provider_file_id", "vector_store_file_id"}:
+                values[key] = bounded_text(str(value) if value is not None else None, 255)
+            else:
+                values[key] = str(value)[:32]
+        async with self._sessions() as session:
+            resource = await session.get(KnowledgeResource, resource_id)
+            if resource is None:
+                return None
+            for key, value in values.items():
+                setattr(resource, key, value)
+            await self._commit(session)
+            await session.refresh(resource)
+            return resource
+
     async def transition(
         self,
         resource_id: UUID,
@@ -76,4 +149,4 @@ class KnowledgeRepository(RepositoryBase):
         async with self._sessions() as session:
             result = await session.execute(statement)
             await self._commit(session)
-            return result.rowcount == 1
+            return bool(getattr(result, "rowcount", 0) == 1)

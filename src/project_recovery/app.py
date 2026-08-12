@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Form, Request
+from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from openai import AsyncOpenAI
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from project_recovery.admin.exceptions import exception_rows
@@ -33,7 +34,10 @@ from project_recovery.config import (
     get_settings,
 )
 from project_recovery.db import Database
+from project_recovery.knowledge.routes import KNOWLEDGE_STATUSES, knowledge_rows
+from project_recovery.knowledge.service import KnowledgeService, KnowledgeValidationError
 from project_recovery.repositories.chat import ChatRepository
+from project_recovery.repositories.knowledge import KnowledgeRepository
 from project_recovery.repositories.telemetry import TelemetryRepository
 from project_recovery.repositories.users import UserRepository
 
@@ -52,6 +56,14 @@ def _services(settings: Settings) -> AppServices:
     users = UserRepository(sessions)
     chats = ChatRepository(sessions)
     telemetry = TelemetryRepository(sessions)
+    openai_client = AsyncOpenAI(api_key=settings.openai_api_key.get_secret_value())
+    knowledge_repository = KnowledgeRepository(sessions)
+    knowledge = KnowledgeService(
+        repository=knowledge_repository,
+        openai_client=openai_client,
+        vector_store_id=settings.openai_vector_store_id,
+        staging_root=Path(settings.attachment_storage_path) / "knowledge",
+    )
     return AppServices(
         database=database,
         auth=auth,
@@ -64,11 +76,13 @@ def _services(settings: Settings) -> AppServices:
                 settings=settings,
                 chat_repository=chats,
                 telemetry_repository=telemetry,
+                openai_client=openai_client,
             ),
             attachment_root=Path(settings.attachment_storage_path),
         ),
         telemetry=telemetry,
         chats=chats,
+        knowledge=knowledge,
     )
 
 
@@ -131,6 +145,8 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        if application_services.knowledge is not None:
+            await application_services.knowledge.recover_stale()
         yield
         await application_services.database.close()
 
@@ -573,6 +589,133 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
                 limit=page_size,
             ),
         )
+
+    @app.get("/admin/knowledge", response_class=HTMLResponse)
+    async def knowledge_page(
+        request: Request,
+        query: str | None = None,
+        status: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if application_services.knowledge is None:
+            return Response(status_code=503)
+        if status and status not in KNOWLEDGE_STATUSES:
+            return Response("Unsupported status.", status_code=400)
+        page_size = min(max(limit, 1), 50)
+        records = list(
+            await application_services.knowledge.list_page(
+                query=query,
+                status=status,
+                offset=max(offset, 0),
+                limit=page_size + 1,
+            )
+        )
+        return templates.TemplateResponse(
+            request,
+            "knowledge.html",
+            _page_context(
+                request,
+                current,
+                rows=knowledge_rows(records[:page_size]),
+                statuses=KNOWLEDGE_STATUSES,
+                query=query or "",
+                selected_status=status or "",
+                has_next=len(records) > page_size,
+                next_offset=max(offset, 0) + page_size,
+                limit=page_size,
+            ),
+        )
+
+    @app.get("/admin/knowledge/status")
+    async def knowledge_status(request: Request) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if application_services.knowledge is None:
+            return Response(status_code=503)
+        records = await application_services.knowledge.list_page(
+            query=None, status=None, offset=0, limit=100
+        )
+        return JSONResponse(
+            {
+                "items": [
+                    {"id": str(row.id), "status": row.status, "error": row.error_message}
+                    for row in records
+                ]
+            }
+        )
+
+    @app.post("/admin/knowledge")
+    async def knowledge_upload(
+        request: Request,
+        background: BackgroundTasks,
+        csrf_token: Annotated[str | None, Form()] = None,
+        category: Annotated[str | None, Form()] = None,
+        description: Annotated[str | None, Form()] = None,
+        upload: UploadFile = File(...),
+    ) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if not await _csrf_valid(request, application_services, csrf_token or ""):
+            return Response(status_code=403)
+        if application_services.knowledge is None:
+            return Response(status_code=503)
+        content = await upload.read(25 * 1024 * 1024 + 1)
+        try:
+            resource = await application_services.knowledge.queue_upload(
+                filename=upload.filename or "",
+                content=content,
+                category=category,
+                description=description,
+            )
+        except KnowledgeValidationError as error:
+            return Response(str(error), status_code=400)
+        background.add_task(application_services.knowledge.ingest, resource.id)
+        return JSONResponse({"id": str(resource.id), "status": "queued"}, status_code=202)
+
+    @app.post("/admin/knowledge/{resource_id}/retry")
+    async def knowledge_retry(
+        request: Request,
+        background: BackgroundTasks,
+        resource_id: UUID,
+        csrf_token: Annotated[str | None, Form()] = None,
+    ) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if not await _csrf_valid(request, application_services, csrf_token or ""):
+            return Response(status_code=403)
+        if application_services.knowledge is None:
+            return Response(status_code=503)
+        if not await application_services.knowledge.retry(resource_id):
+            return Response(status_code=409)
+        background.add_task(application_services.knowledge.ingest, resource_id)
+        return _redirect("/admin/knowledge")
+
+    @app.post("/admin/knowledge/{resource_id}/delete")
+    async def knowledge_delete(
+        request: Request,
+        resource_id: UUID,
+        csrf_token: Annotated[str | None, Form()] = None,
+        confirm: Annotated[str | None, Form()] = None,
+    ) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if not await _csrf_valid(request, application_services, csrf_token or ""):
+            return Response(status_code=403)
+        if confirm != "delete":
+            return Response("Deletion confirmation is required.", status_code=400)
+        if application_services.knowledge is None:
+            return Response(status_code=503)
+        if not await application_services.knowledge.delete(resource_id):
+            return Response(status_code=409)
+        return _redirect("/admin/knowledge")
 
     if application_services.chat is not None:
         from chainlit.utils import mount_chainlit
