@@ -17,7 +17,15 @@ class NavigationItem:
 
 
 _USER_ITEMS = (("Chat", "/chat"), ("Settings", "/settings"))
-_ADMIN_ITEMS = (("Users", "/admin/users"), ("Logins", "/admin/logins"))
+_ADMIN_ITEMS = (
+    ("Users", "/admin/users"),
+    ("Logins", "/admin/logins"),
+    ("Prompt Runs", "/admin/prompt-runs"),
+    ("Chat Feedback", "/admin/chat-feedback"),
+    ("Model Usage", "/admin/model-usage"),
+    ("Exceptions", "/admin/exceptions"),
+    ("Tool Use", "/admin/tool-use"),
+)
 
 
 def navigation_items(user: CurrentUser, path: str) -> list[NavigationItem]:
@@ -68,3 +76,5 @@ class AppServices:
     auth: AuthService
     users: UserAdminBoundary
     chat: Any | None = None
+    telemetry: Any | None = None
+    chats: Any | None = None

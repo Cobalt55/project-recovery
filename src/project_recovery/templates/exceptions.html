@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Exceptions · Project Recovery{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <h1>Exceptions</h1>
+  <p>Grouped application failures with bounded, redacted diagnostic context.</p>
+</header>
+<section class="section-block" aria-labelledby="exceptions-table">
+  <h2 id="exceptions-table">Recent failures</h2>
+  {% if rows %}<div class="table-wrap"><table>
+    <thead><tr><th>Last seen</th><th>Type / path</th><th>Message</th><th>Occurrences</th><th>Diagnostics</th></tr></thead>
+    <tbody>{% for row in rows %}<tr>
+      <td>{{ row.last_seen_at }}</td><td>{{ row.type }}<br><span>{{ row.path }}</span></td>
+      <td class="bounded-copy">{{ row.message }}</td><td>{{ row.occurrences }}</td>
+      <td><details><summary>View details</summary><p><code>{{ row.fingerprint }}</code></p><pre>{{ row.stack }}</pre><pre>{{ row.context }}</pre></details></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="supporting-copy">No exceptions have been recorded.</p>{% endif %}
+  {% if has_next %}<p><a href="?offset={{ next_offset }}&limit={{ limit }}">Next page</a></p>{% endif %}
+</section>
+{% endblock %}

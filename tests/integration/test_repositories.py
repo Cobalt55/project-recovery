@@ -219,6 +219,10 @@ async def test_repositories_persist_and_retrieve_related_records(database: Datab
     stored_tool_run = await telemetry.get_tool_run(tool_run.id)
     assert stored_tool_run.output["Authorization"] == "[REDACTED]"
     assert (await chats.get_feedback(feedback.id)).rating == 1
+    assert feedback.id in {row.id for row in await chats.list_feedback(0, 10)}
+    usage = await telemetry.usage_summary(None)
+    assert usage["overview"]["requests"] >= 1
+    assert any(row["model"] == "gpt-5.6-terra" for row in usage["models"])
     stored_exception = await telemetry.get_exception(exception.id)
     assert stored_exception.context["authorization"] == "[REDACTED]"
     assert stored_exception.request_path == "/chat"

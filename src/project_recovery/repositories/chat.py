@@ -373,6 +373,17 @@ class ChatRepository(RepositoryBase):
         async with self._sessions() as session:
             return await session.get(ChatFeedback, feedback_id)
 
+    async def list_feedback(self, offset: int, limit: int) -> Sequence[ChatFeedback]:
+        """Return a bounded newest-first feedback page."""
+        statement = (
+            select(ChatFeedback)
+            .order_by(ChatFeedback.created_at.desc())
+            .offset(page_offset(offset))
+            .limit(page_limit(limit))
+        )
+        async with self._sessions() as session:
+            return (await session.scalars(statement)).all()
+
     async def upsert_chainlit_feedback(
         self,
         *,

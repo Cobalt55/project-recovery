@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Chat Feedback · Project Recovery{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <h1>Chat Feedback</h1>
+  <p>Recent ratings and bounded context snapshots for improving the chat experience.</p>
+</header>
+<section class="section-block" aria-labelledby="feedback-table">
+  <h2 id="feedback-table">Recent feedback</h2>
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Submitted</th><th>Rating</th><th>Comment</th><th>Model / trace</th><th>Context</th></tr></thead>
+    <tbody>{% for row in rows %}<tr>
+      <td>{{ row.created_at }}</td>
+      <td>{% if row.rating == 1 %}Helpful{% else %}Not helpful{% endif %}</td>
+      <td class="bounded-copy">{{ row.comment or "No comment" }}</td>
+      <td>{{ row.model }}<br><code>{{ row.trace_id }}</code></td>
+      <td><details><summary>View bounded context</summary><pre>{{ row.context }}</pre></details></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="supporting-copy">No chat feedback has been submitted yet.</p>{% endif %}
+  {% if has_next %}<p><a href="?offset={{ next_offset }}&limit={{ limit }}">Next page</a></p>{% endif %}
+</section>
+{% endblock %}

@@ -2,10 +2,11 @@
 
 import hashlib
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -205,3 +206,44 @@ class TelemetryRepository(RepositoryBase):
         )
         async with self._sessions() as session:
             return (await session.scalars(statement)).all()
+
+    async def usage_summary(self, since: datetime | None) -> dict[str, object]:
+        """Aggregate complete usage without exposing an unbounded result set."""
+        predicates = [PromptRun.started_at >= since] if since is not None else []
+        overview_statement = select(
+            func.count(PromptRun.id).label("requests"),
+            func.count(distinct(PromptRun.user_id)).label("users"),
+            func.count(distinct(PromptRun.conversation_id)).label("conversations"),
+            func.coalesce(func.sum(PromptRun.input_tokens), 0).label("input_tokens"),
+            func.coalesce(func.sum(PromptRun.cached_tokens), 0).label("cached_tokens"),
+            func.coalesce(func.sum(PromptRun.output_tokens), 0).label("output_tokens"),
+            func.coalesce(func.sum(PromptRun.total_tokens), 0).label("total_tokens"),
+            func.coalesce(func.avg(PromptRun.latency_ms), 0).label("average_latency_ms"),
+            func.coalesce(func.sum(PromptRun.estimated_cost), 0).label("estimated_cost"),
+            func.count(PromptRun.id)
+            .filter(PromptRun.estimated_cost.is_(None))
+            .label("unpriced_count"),
+        ).where(*predicates)
+        model_statement = (
+            select(
+                PromptRun.model.label("model"),
+                func.count(PromptRun.id).label("requests"),
+                func.coalesce(func.sum(PromptRun.input_tokens), 0).label("input_tokens"),
+                func.coalesce(func.sum(PromptRun.cached_tokens), 0).label("cached_tokens"),
+                func.coalesce(func.sum(PromptRun.output_tokens), 0).label("output_tokens"),
+                func.coalesce(func.sum(PromptRun.total_tokens), 0).label("total_tokens"),
+                func.coalesce(func.sum(PromptRun.estimated_cost), 0).label("estimated_cost"),
+                func.count(PromptRun.id)
+                .filter(PromptRun.estimated_cost.is_(None))
+                .label("unpriced_count"),
+            )
+            .where(*predicates)
+            .group_by(PromptRun.model)
+            .order_by(func.count(PromptRun.id).desc(), PromptRun.model.asc())
+        )
+        async with self._sessions() as session:
+            overview = dict((await session.execute(overview_statement)).mappings().one())
+            models = [
+                dict(row) for row in (await session.execute(model_statement)).mappings().all()
+            ]
+        return {"overview": overview, "models": models}

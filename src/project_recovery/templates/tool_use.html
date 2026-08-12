@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Tool Use · Project Recovery{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <h1>Tool Use</h1>
+  <p>Recent hosted and application tool activity linked to model traces.</p>
+</header>
+<section class="section-block" aria-labelledby="tool-use-table">
+  <h2 id="tool-use-table">Recent tool calls</h2>
+  {% if rows %}<div class="table-wrap"><table>
+    <thead><tr><th>Created</th><th>Tool</th><th>Status</th><th>Results</th><th>Trace</th><th>Details</th></tr></thead>
+    <tbody>{% for row in rows %}<tr>
+      <td>{{ row.created_at }}</td><td>{{ row.name }}<br><span>{{ row.type }}</span></td>
+      <td>{{ row.status }}<br><span>{{ row.duration_ms or 0 }} ms</span></td>
+      <td>{{ row.result_count or 0 }}<br><span>{{ row.summary }}</span></td>
+      <td><code>{{ row.trace_id }}</code></td>
+      <td><details><summary>View bounded data</summary><pre>{{ row.arguments }}</pre><pre>{{ row.output }}</pre></details></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="supporting-copy">No tool calls have been recorded.</p>{% endif %}
+  {% if has_next %}<p><a href="?offset={{ next_offset }}&limit={{ limit }}">Next page</a></p>{% endif %}
+</section>
+{% endblock %}

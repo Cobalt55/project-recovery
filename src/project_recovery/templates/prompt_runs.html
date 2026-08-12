@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Prompt Runs · Project Recovery{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <h1>Prompt Runs</h1>
+  <p>Recent model requests, trace links, reasoning settings, latency, tokens, and estimated cost.</p>
+</header>
+<section class="section-block" aria-labelledby="prompt-runs-table">
+  <h2 id="prompt-runs-table">Recent runs</h2>
+  {% if rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Started</th><th>User / conversation</th><th>Prompt</th><th>Model</th><th>Status</th><th>Usage</th><th>Trace</th></tr></thead>
+    <tbody>{% for row in rows %}<tr>
+      <td>{{ row.started_at }}</td>
+      <td><code>{{ row.user_id }}</code><br><span>{{ row.conversation_id }}</span></td>
+      <td class="bounded-copy">{{ row.prompt }}</td>
+      <td>{{ row.model }}<br><span>{{ row.requested_effort }} → {{ row.effective_effort }}</span></td>
+      <td>{{ row.status }}<br><span>{{ row.latency_ms or 0 }} ms</span></td>
+      <td>{{ row.total_tokens or 0 }} tokens<br><span>${{ row.estimated_cost or "unpriced" }}</span></td>
+      <td><code>{{ row.trace_id }}</code></td>
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="supporting-copy">No prompt runs have been recorded yet.</p>{% endif %}
+  {% if has_next %}<p><a href="?offset={{ next_offset }}&limit={{ limit }}">Next page</a></p>{% endif %}
+</section>
+{% endblock %}

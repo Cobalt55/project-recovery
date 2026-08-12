@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Model Usage · Project Recovery{% endblock %}
+{% block content %}
+<header class="page-heading">
+  <h1>Model Usage</h1>
+  <p>Token categories, latency, and estimated cost. Pricing effective {{ usage.pricing_effective_date }}.</p>
+</header>
+<form class="form-row" method="get" action="/admin/model-usage">
+  <label>Window
+    <select name="window">{% for option in windows %}<option value="{{ option }}"{% if option == window %} selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+  </label>
+  <button class="button" type="submit">Apply</button>
+</form>
+<section class="metric-grid" aria-label="Usage overview">
+  <article><span>Requests</span><strong>{{ usage.overview.requests }}</strong></article>
+  <article><span>Users</span><strong>{{ usage.overview.users }}</strong></article>
+  <article><span>Conversations</span><strong>{{ usage.overview.conversations }}</strong></article>
+  <article><span>Total tokens</span><strong>{{ usage.overview.total_tokens }}</strong></article>
+  <article><span>Average latency</span><strong>{{ usage.overview.average_latency_ms }} ms</strong></article>
+  <article><span>Estimated cost</span><strong>${{ usage.overview.estimated_cost }}</strong></article>
+  <article><span>Unpriced runs</span><strong>{{ usage.overview.unpriced_count }}</strong></article>
+</section>
+<section class="section-block" aria-labelledby="usage-models">
+  <h2 id="usage-models">By model</h2>
+  {% if usage.models %}<div class="table-wrap"><table>
+    <thead><tr><th>Model</th><th>Requests</th><th>Input</th><th>Cached input</th><th>Output</th><th>Total</th><th>Cost</th><th>Unpriced</th></tr></thead>
+    <tbody>{% for row in usage.models %}<tr><td>{{ row.model }}</td><td>{{ row.requests }}</td><td>{{ row.input_tokens }}</td><td>{{ row.cached_tokens }}</td><td>{{ row.output_tokens }}</td><td>{{ row.total_tokens }}</td><td>${{ row.estimated_cost }}</td><td>{{ row.unpriced_count }}</td></tr>{% endfor %}</tbody>
+  </table></div>{% else %}<p class="supporting-copy">No model usage is available for this window.</p>{% endif %}
+</section>
+{% endblock %}

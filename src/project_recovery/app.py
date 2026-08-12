@@ -2,6 +2,7 @@
 
 import logging
 import os
+import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -14,9 +15,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from project_recovery.admin.exceptions import exception_rows
+from project_recovery.admin.feedback import feedback_rows
 from project_recovery.admin.logins import login_status
+from project_recovery.admin.model_usage import USAGE_WINDOWS, usage_view, window_start
+from project_recovery.admin.prompt_runs import prompt_run_rows
 from project_recovery.admin.settings import validated_settings
 from project_recovery.admin.shell import AppServices, navigation_items
+from project_recovery.admin.tool_use import tool_run_rows
 from project_recovery.admin.users import UserManagementService
 from project_recovery.agent_runtime import AgentRuntime
 from project_recovery.auth.passwords import PasswordService
@@ -61,6 +67,8 @@ def _services(settings: Settings) -> AppServices:
             ),
             attachment_root=Path(settings.attachment_storage_path),
         ),
+        telemetry=telemetry,
+        chats=chats,
     )
 
 
@@ -137,8 +145,36 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
         request.state.correlation_id = correlation_id
         try:
             response = await call_next(request)
-        except Exception:
-            # Starlette produces the safe response; logs retain no exception text.
+        except Exception as error:
+            if application_services.telemetry is not None:
+                api_key = configured.openai_api_key.get_secret_value()
+                message = str(error)
+                stack = traceback.format_exc()
+                if api_key:
+                    message = message.replace(api_key, "[REDACTED]")
+                    stack = stack.replace(api_key, "[REDACTED]")
+                actor_id = None
+                try:
+                    actor = await application_services.auth.current_user(
+                        request.cookies.get(SESSION_COOKIE, "")
+                    )
+                    actor_id = actor.user_id if actor is not None else None
+                except Exception:
+                    pass
+                try:
+                    await application_services.telemetry.record_exception(
+                        request_path=request.url.path,
+                        user_id=actor_id,
+                        exception_type=type(error).__name__,
+                        message=message,
+                        stack_trace=stack,
+                        context={
+                            "correlation_id": correlation_id,
+                            "method": request.method,
+                        },
+                    )
+                except Exception:
+                    pass
             LOGGER.error(
                 "request failed correlation_id=%s path=%s", correlation_id, request.url.path
             )
@@ -417,6 +453,126 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             return Response(status_code=403)
         await application_services.users.revoke_login(current.user_id, login_id)
         return _redirect("/admin/logins")
+
+    @app.get("/admin/prompt-runs", response_class=HTMLResponse)
+    async def prompt_runs_page(request: Request, offset: int = 0, limit: int = 50) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if application_services.telemetry is None:
+            return Response(status_code=503)
+        page_size = min(max(limit, 1), 50)
+        records = list(
+            await application_services.telemetry.list_prompt_runs(max(offset, 0), page_size + 1)
+        )
+        return templates.TemplateResponse(
+            request,
+            "prompt_runs.html",
+            _page_context(
+                request,
+                current,
+                rows=prompt_run_rows(records[:page_size]),
+                has_next=len(records) > page_size,
+                next_offset=max(offset, 0) + page_size,
+                limit=page_size,
+            ),
+        )
+
+    @app.get("/admin/chat-feedback", response_class=HTMLResponse)
+    async def chat_feedback_page(request: Request, offset: int = 0, limit: int = 50) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if application_services.chats is None:
+            return Response(status_code=503)
+        page_size = min(max(limit, 1), 50)
+        records = list(
+            await application_services.chats.list_feedback(max(offset, 0), page_size + 1)
+        )
+        return templates.TemplateResponse(
+            request,
+            "chat_feedback.html",
+            _page_context(
+                request,
+                current,
+                rows=feedback_rows(records[:page_size]),
+                has_next=len(records) > page_size,
+                next_offset=max(offset, 0) + page_size,
+                limit=page_size,
+            ),
+        )
+
+    @app.get("/admin/model-usage", response_class=HTMLResponse)
+    async def model_usage_page(request: Request, window: str = "30d") -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if application_services.telemetry is None:
+            return Response(status_code=503)
+        try:
+            since = window_start(window)
+        except ValueError:
+            return Response("Unsupported usage window.", status_code=400)
+        summary = await application_services.telemetry.usage_summary(since)
+        return templates.TemplateResponse(
+            request,
+            "model_usage.html",
+            _page_context(
+                request,
+                current,
+                usage=usage_view(summary),
+                windows=tuple(USAGE_WINDOWS),
+                window=window,
+            ),
+        )
+
+    @app.get("/admin/exceptions", response_class=HTMLResponse)
+    async def exceptions_page(request: Request, offset: int = 0, limit: int = 50) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if application_services.telemetry is None:
+            return Response(status_code=503)
+        page_size = min(max(limit, 1), 50)
+        records = list(
+            await application_services.telemetry.list_exceptions(max(offset, 0), page_size + 1)
+        )
+        return templates.TemplateResponse(
+            request,
+            "exceptions.html",
+            _page_context(
+                request,
+                current,
+                rows=exception_rows(records[:page_size]),
+                has_next=len(records) > page_size,
+                next_offset=max(offset, 0) + page_size,
+                limit=page_size,
+            ),
+        )
+
+    @app.get("/admin/tool-use", response_class=HTMLResponse)
+    async def tool_use_page(request: Request, offset: int = 0, limit: int = 50) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if application_services.telemetry is None:
+            return Response(status_code=503)
+        page_size = min(max(limit, 1), 50)
+        records = list(
+            await application_services.telemetry.list_tool_runs(max(offset, 0), page_size + 1)
+        )
+        return templates.TemplateResponse(
+            request,
+            "tool_use.html",
+            _page_context(
+                request,
+                current,
+                rows=tool_run_rows(records[:page_size]),
+                has_next=len(records) > page_size,
+                next_offset=max(offset, 0) + page_size,
+                limit=page_size,
+            ),
+        )
 
     if application_services.chat is not None:
         from chainlit.utils import mount_chainlit
