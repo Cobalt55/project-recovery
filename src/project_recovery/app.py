@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
+from chainlit.auth import create_jwt
+from chainlit.user import User as ChainlitUser
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -118,7 +120,11 @@ async def _csrf_valid(request: Request, services: AppServices, csrf_token: str) 
 
 
 def _set_login_cookies(
-    response: Response, session_token: str, csrf_token: str, settings: Settings
+    response: Response,
+    session_token: str,
+    csrf_token: str,
+    current: CurrentUser,
+    settings: Settings,
 ) -> None:
     secure = settings.environment.casefold() == "production"
     response.set_cookie(
@@ -126,6 +132,21 @@ def _set_login_cookies(
     )
     response.set_cookie(
         CSRF_COOKIE, csrf_token, httponly=False, samesite="lax", secure=secure, path="/"
+    )
+    response.set_cookie(
+        CHAINLIT_COOKIE_PREFIX,
+        create_jwt(
+            ChainlitUser(
+                identifier=str(current.user_id),
+                display_name=current.email,
+                metadata={"roles": list(current.roles)},
+            )
+        ),
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+        path="/",
+        max_age=12 * 60 * 60,
     )
 
 
@@ -144,6 +165,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     application_services = services or _services(configured)
     templates = Jinja2Templates(directory=str(PACKAGE_ROOT / "templates"))
     login_limiter = LoginRateLimiter()
+    os.environ["CHAINLIT_AUTH_SECRET"] = configured.chainlit_auth_secret.get_secret_value()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -240,7 +262,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     async def login_form(request: Request) -> Response:
         current = await _current_user(request, application_services)
         if isinstance(current, CurrentUser):
-            return _redirect("/settings")
+            return _redirect("/chat")
         return templates.TemplateResponse(request, "login.html", {"error": None})
 
     @app.post("/login")
@@ -267,10 +289,17 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             )
         await login_limiter.record_success(client_address, email)
         current = await application_services.auth.current_user(result.session_token)
-        response = _redirect(
-            "/password/change" if current and current.force_password_change else "/settings"
+        if current is None:
+            await application_services.auth.logout(result.session_token)
+            return Response(status_code=401)
+        response = _redirect("/password/change" if current.force_password_change else "/chat")
+        _set_login_cookies(
+            response,
+            result.session_token,
+            result.csrf_token,
+            current,
+            configured,
         )
-        _set_login_cookies(response, result.session_token, result.csrf_token, configured)
         return response
 
     @app.post("/logout")
@@ -737,7 +766,6 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
         from chainlit.utils import mount_chainlit
 
         configure_chat(application_services.chat)
-        os.environ["CHAINLIT_AUTH_SECRET"] = configured.chainlit_auth_secret.get_secret_value()
         mount_chainlit(
             app=app,
             target=str(PACKAGE_ROOT / "chat_app.py"),

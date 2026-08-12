@@ -240,6 +240,15 @@ def test_member_navigation_and_settings_write_require_csrf() -> None:
     }
 
 
+def test_application_login_also_establishes_the_chainlit_session() -> None:
+    """A normal workspace login opens Chat without a second sign-in prompt."""
+    client, _, _ = _client()
+
+    _login(client, "admin@example.test")
+
+    assert "access_token" in client.cookies
+
+
 def test_admin_user_actions_and_login_table_keep_secrets_out_of_html() -> None:
     """Missing admin CSRF enforcement or token exposure must fail this observable boundary."""
     client, _, users = _client()
