@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Users · Project Recovery{% endblock %}
+{% block content %}
+<section class="page-heading"><h1>Users</h1><p>Manage workspace access with small, deliberate changes.</p></section>
+{% if temporary_password %}<aside class="notice notice-info" aria-live="polite"><strong>Temporary password</strong><code>{{ temporary_password }}</code><p>Copy it now. It will not be shown again.</p></aside>{% endif %}
+<section class="section-block" aria-labelledby="add-user-title">
+<h2 id="add-user-title">Add user</h2>
+<form method="post" action="/admin/users" class="form-row">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Email<input name="email" type="email" required></label><label>Display name<input name="display_name" required></label><label>Roles<select name="roles"><option value="user">User</option><option value="admin">Administrator</option></select></label><button class="button" type="submit">Create user</button>
+</form></section>
+<section class="section-block" aria-labelledby="user-list-title"><h2 id="user-list-title">Workspace users</h2><div class="table-wrap"><table><thead><tr><th>User</th><th>Roles</th><th>Status</th><th>Actions</th></tr></thead><tbody>{% for row in users %}<tr><td><strong>{{ row.display_name }}</strong><br><span>{{ row.email }}</span></td><td>{{ row.roles | join(', ') }}</td><td>{{ 'Active' if row.is_active else 'Inactive' }}</td><td class="actions"><form method="post" action="/admin/users/{{ row.id }}/active"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="is_active" value="{{ 'false' if row.is_active else 'true' }}"><button class="button button-quiet" type="submit">{{ 'Deactivate' if row.is_active else 'Activate' }}</button></form><form method="post" action="/admin/users/{{ row.id }}/reset"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-quiet" type="submit">Reset password</button></form></td></tr>{% else %}<tr><td colspan="4">No users match this view.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

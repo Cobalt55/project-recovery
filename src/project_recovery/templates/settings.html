@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{% if password_only %}Change password{% else %}Settings{% endif %} · Project Recovery{% endblock %}
+{% block content %}
+<section class="page-heading"><h1>{% if password_only %}Change password{% else %}Settings{% endif %}</h1><p>Adjust the preferences for your account.</p></section>
+{% if not password_only %}
+<section class="section-block" aria-labelledby="preferences-title">
+  <h2 id="preferences-title">Preferences</h2>
+  <form method="post" action="/settings" class="settings-form stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Model<select name="model">{% for option in ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'] %}<option value="{{ option }}"{% if settings.get('model', 'gpt-5.6-terra') == option %} selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+    <label>Reasoning effort<select name="reasoning_effort">{% for option in ['low', 'medium', 'high'] %}<option value="{{ option }}"{% if settings.get('reasoning_effort', 'medium') == option %} selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+    <label>Theme<select name="theme">{% for option in ['system', 'light', 'dark'] %}<option value="{{ option }}"{% if settings.get('theme', 'system') == option %} selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+    <button class="button" type="submit">Save settings</button>
+  </form>
+</section>
+{% endif %}
+<section class="section-block" aria-labelledby="password-title">
+  <h2 id="password-title">Password</h2>
+  <form method="post" action="/password/change" class="settings-form stack">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
+    <label>New password<input name="new_password" type="password" autocomplete="new-password" minlength="20" required></label>
+    <button class="button" type="submit">Update password</button>
+  </form>
+</section>
+{% endblock %}

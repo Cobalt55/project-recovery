@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Project Recovery{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='app.css') }}">
+    <script src="{{ url_for('static', path='app.js') }}" defer></script>
+  </head>
+  <body>
+    <div class="app-frame">
+      <aside class="side-rail" aria-label="Application">
+        <a class="wordmark" href="{% if user.force_password_change %}/password/change{% else %}/chat{% endif %}">Project Recovery</a>
+        {% if not user.force_password_change %}<nav aria-label="Main navigation">
+          <ul class="navigation-list">
+            {% for item in navigation %}
+            <li><a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+            {% endfor %}
+          </ul>
+        </nav>{% endif %}
+      </aside>
+      <div class="workspace">
+        <header class="top-bar">
+          <p class="account-name">{{ user.email }}</p>
+          <form method="post" action="/logout">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button button-quiet" type="submit">Log out</button>
+          </form>
+        </header>
+        <main id="main-content">{% block content %}{% endblock %}</main>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Logins · Project Recovery{% endblock %}
+{% block content %}
+<section class="page-heading"><h1>Logins</h1><p>Review active and recent browser sessions without exposing credentials.</p></section>
+<section class="section-block"><div class="table-wrap"><table><thead><tr><th>User</th><th>Status</th><th>Login</th><th>Last seen</th><th>Expires</th><th>Revoked</th></tr></thead><tbody>{% for login in logins %}<tr><td>{{ login.email }}</td><td>{{ login_status(login.is_active, login.revoked_at) }}</td><td>{{ login.created_at }}</td><td>{{ login.last_seen_at }}</td><td>{{ login.expires_at }}</td><td>{{ login.revoked_at or '—' }}</td></tr>{% else %}<tr><td colspan="6">No login records are available.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}
