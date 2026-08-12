@@ -59,6 +59,11 @@ Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "webapp", "update", "--resource-group", $metadata.resourceGroup, "--name", $metadata.webAppName,
     "--https-only", "true", "--output", "none"
 ) | Out-Null
+Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "webapp", "vnet-integration", "add", "--resource-group", $metadata.resourceGroup,
+    "--name", $metadata.webAppName, "--vnet", $metadata.vnetName,
+    "--subnet", $metadata.webAppSubnetName, "--output", "none"
+) | Out-Null
 
 $appSettings = @(
     "OPENAI_API_KEY=@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-openai-api-key'))",

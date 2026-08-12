@@ -83,3 +83,18 @@ def test_workflows_use_oidc_and_the_deployment_workflow_checks_health() -> None:
     assert "pytest" in tests
     assert "ruff check" in tests
     assert "mypy src" in tests
+
+
+def test_deployment_uses_private_postgres_networking_and_packages_web_assets() -> None:
+    """Production cannot depend on a public database or omit templates from its wheel."""
+    provision = (ROOT / "scripts" / "azure" / "provision.ps1").read_text(encoding="utf-8")
+    configure = (ROOT / "scripts" / "azure" / "configure.ps1").read_text(encoding="utf-8")
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert "--vnet" in provision
+    assert "--subnet" in provision
+    assert "--private-dns-zone" in provision
+    assert "--public-access" not in provision
+    assert "vnet-integration" in configure
+    assert "templates/*.html" in pyproject
+    assert "static/*" in pyproject

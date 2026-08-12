@@ -32,6 +32,10 @@ $webAppName = New-SafeResourceName "project-recovery-chat"
 $planName = "$webAppName-plan"
 $postgresServerName = New-SafeResourceName "project-recovery-chat-db"
 $databaseName = "projectrecovery"
+$vnetName = "$webAppName-vnet"
+$postgresSubnetName = "postgres"
+$webAppSubnetName = "webapp"
+$privateDnsZoneName = "$webAppName.private.postgres.database.azure.com"
 
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "group", "create", "--name", $ResourceGroup, "--location", $Location, "--output", "none"
@@ -44,6 +48,22 @@ Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "webapp", "create", "--resource-group", $ResourceGroup, "--plan", $planName, "--name", $webAppName,
     "--runtime", "PYTHON:3.12", "--output", "none"
 ) | Out-Null
+Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "network", "vnet", "create", "--resource-group", $ResourceGroup, "--name", $vnetName,
+    "--location", $Location, "--address-prefixes", "10.20.0.0/16", "--output", "none"
+) | Out-Null
+Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "network", "vnet", "subnet", "create", "--resource-group", $ResourceGroup,
+    "--vnet-name", $vnetName, "--name", $postgresSubnetName,
+    "--address-prefixes", "10.20.1.0/24",
+    "--delegations", "Microsoft.DBforPostgreSQL/flexibleServers", "--output", "none"
+) | Out-Null
+Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "network", "vnet", "subnet", "create", "--resource-group", $ResourceGroup,
+    "--vnet-name", $vnetName, "--name", $webAppSubnetName,
+    "--address-prefixes", "10.20.2.0/24",
+    "--delegations", "Microsoft.Web/serverFarms", "--output", "none"
+) | Out-Null
 
 if ($null -eq $PostgresAdminPassword) {
     $PostgresAdminPassword = ConvertTo-SecureString (New-RandomSecret) -AsPlainText -Force
@@ -55,7 +75,8 @@ try {
         "--name", $postgresServerName, "--location", $Location, "--admin-user", "projectrecoveryadmin",
         "--admin-password", $postgresPassword, "--sku-name", "Standard_B1ms", "--tier", "Burstable",
         "--storage-size", "32", "--backup-retention", "7", "--high-availability", "Disabled",
-        "--version", "16", "--public-access", "none", "--output", "none"
+        "--version", "16", "--vnet", $vnetName, "--subnet", $postgresSubnetName,
+        "--private-dns-zone", $privateDnsZoneName, "--output", "none"
     ) | Out-Null
     Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
         "postgres", "flexible-server", "db", "create", "--resource-group", $ResourceGroup,
@@ -77,5 +98,9 @@ Save-DeploymentMetadata -Metadata ([ordered]@{
     appServicePlanName = $planName
     postgresServerName = $postgresServerName
     databaseName = $databaseName
+    vnetName = $vnetName
+    postgresSubnetName = $postgresSubnetName
+    webAppSubnetName = $webAppSubnetName
+    privateDnsZoneName = $privateDnsZoneName
 }) -MetadataPath $MetadataPath
 Write-Output "Provisioning completed. Non-secret deployment metadata was saved locally."

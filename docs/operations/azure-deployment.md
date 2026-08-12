@@ -31,11 +31,11 @@ The scripts persist only resource names and IDs to
 files are read directly into Key Vault and are never printed.
 
 The PostgreSQL Flexible Server uses `Standard_B1ms`, 32 GiB storage, seven-day
-backup retention, and no high availability. The database password is generated
-unless supplied as a secure PowerShell value, then stored only as a Key Vault
-secret. Before production traffic, restrict PostgreSQL networking to the Web
-App's outbound addresses (and any explicitly approved migration path); do not
-open a broad public firewall rule.
+backup retention, and no high availability. It has no public endpoint: a
+delegated PostgreSQL subnet and private DNS zone are created in the deployment
+VNet, and the Web App uses a separate delegated subnet through regional VNet
+integration. The database password is generated unless supplied as a secure
+PowerShell value, then stored only as a Key Vault secret.
 
 ## Initial database setup and credentials
 
