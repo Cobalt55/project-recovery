@@ -79,10 +79,12 @@ class AuthService(RepositoryBase):
                 snapshot_active = False
         if snapshot_id is None:
             await self._passwords.verify_dummy_async(password)
-            return await self._record_login_failure(None)
+            await self._record_login_failure(None)
+            return None
         password_ok = await self._passwords.verify_async(snapshot_hash, password)
         if not password_ok or not snapshot_active:
-            return await self._record_login_failure(snapshot_id)
+            await self._record_login_failure(snapshot_id)
+            return None
         replacement_hash = (
             await self._passwords.hash_async(password)
             if await self._passwords.needs_rehash_async(snapshot_hash)

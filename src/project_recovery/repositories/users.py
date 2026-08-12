@@ -1,6 +1,7 @@
 """User persistence queries."""
 
 from collections.abc import Sequence
+from typing import Any, cast
 
 from sqlalchemy import Select, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -20,11 +21,11 @@ class UserRepository(RepositoryBase):
     async def get_by_email(self, email: str) -> User | None:
         async with self._sessions() as session:
             statement = select(User).where(User.email == email.strip().casefold())
-            return await session.scalar(statement)
+            return cast(User | None, await session.scalar(statement))
 
     async def get(self, user_id: object) -> User | None:
         async with self._sessions() as session:
-            return await session.get(User, user_id)
+            return cast(User | None, await session.get(User, user_id))
 
     async def create(
         self,
@@ -191,7 +192,7 @@ class UserRepository(RepositoryBase):
         statement = select(User.id).where(
             User.id != user_id,
             User.is_active.is_(True),
-            User.roles.any("admin"),
+            cast(Any, User.roles).any("admin"),
         )
         return (await session.scalar(statement)) is not None
 

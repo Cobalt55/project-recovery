@@ -44,10 +44,10 @@ class AuthRoutes:
         """Authenticate credentials; an adapter sets cookies only for a result."""
         return await self.auth.login(email, password)
 
-    async def logout(self, session_token: str, csrf_token: str) -> bool:
+    async def logout(self, session_token: str, csrf_token: str) -> None:
         """Require CSRF before revoking a browser session."""
         await require_csrf(self.auth, session_token, csrf_token)
-        return await self.auth.logout(session_token)
+        await self.auth.logout(session_token)
 
     async def change_password(
         self, session_token: str, csrf_token: str, current_password: str, new_password: str

@@ -5,7 +5,7 @@ import hmac
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Protocol
+from typing import Protocol, cast
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
@@ -60,7 +60,7 @@ class PasswordService:
     async def hash_async(self, password: str) -> str:
         """Hash a permitted password in the bounded worker pool."""
         self._validate(password)
-        return await self._run(self._hasher.hash, password)
+        return cast(str, await self._run(self._hasher.hash, password))
 
     def verify(self, encoded: str, password: str) -> bool:
         """Return false for wrong, malformed, or unsuitable credential input."""
@@ -75,7 +75,7 @@ class PasswordService:
         """Verify a password in the bounded worker pool."""
         if not self._is_permitted(password):
             return False
-        return await self._run(self.verify, encoded, password)
+        return cast(bool, await self._run(self.verify, encoded, password))
 
     def needs_rehash(self, encoded: str) -> bool:
         """Identify valid legacy hashes that should migrate after a successful login."""
@@ -86,7 +86,7 @@ class PasswordService:
 
     async def needs_rehash_async(self, encoded: str) -> bool:
         """Check legacy hash parameters without blocking the request loop."""
-        return await self._run(self.needs_rehash, encoded)
+        return cast(bool, await self._run(self.needs_rehash, encoded))
 
     def verify_dummy(self, password: str) -> None:
         """Consume comparable hash work when an account cannot be authenticated."""

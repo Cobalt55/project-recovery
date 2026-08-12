@@ -23,12 +23,13 @@ class RepositoryBase:
     """Let repositories either own a short session or join a caller transaction."""
 
     def __init__(self, sessions: async_sessionmaker[AsyncSession] | AsyncSession) -> None:
-        self._owns_session = not isinstance(sessions, AsyncSession)
         self._sessions: Callable[[], AbstractAsyncContextManager[AsyncSession]]
-        if self._owns_session:
-            self._sessions = sessions
-        else:
+        if isinstance(sessions, AsyncSession):
+            self._owns_session = False
             self._sessions = lambda: _SharedSessionContext(sessions)
+        else:
+            self._owns_session = True
+            self._sessions = sessions
 
     async def _commit(self, session: AsyncSession) -> None:
         """Commit only repository-owned sessions; flush caller-owned transactions."""
