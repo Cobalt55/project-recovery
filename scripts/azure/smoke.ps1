@@ -8,6 +8,49 @@ param(
 
 . (Join-Path $PSScriptRoot "common.ps1")
 
+function Invoke-NoRedirectWebRequest {
+    param(
+        [Parameter(Mandatory)][string]$Uri,
+        [ValidateSet("Get", "Post")][string]$Method = "Get",
+        [hashtable]$Body
+    )
+
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $content = $null
+    try {
+        if ($Method -eq "Post") {
+            $pairs = [System.Collections.Generic.List[System.Collections.Generic.KeyValuePair[string, string]]]::new()
+            foreach ($key in $Body.Keys) {
+                $pairs.Add([System.Collections.Generic.KeyValuePair[string, string]]::new($key, [string]$Body[$key]))
+            }
+            $content = [System.Net.Http.FormUrlEncodedContent]::new($pairs)
+            $response = $client.PostAsync($Uri, $content).GetAwaiter().GetResult()
+        }
+        else {
+            $response = $client.GetAsync($Uri).GetAwaiter().GetResult()
+        }
+        $location = if ($null -ne $response.Headers.Location) {
+            $response.Headers.Location.OriginalString
+        }
+        else {
+            $null
+        }
+        return [pscustomobject]@{
+            StatusCode = [int]$response.StatusCode
+            Headers = [pscustomobject]@{ Location = $location }
+        }
+    }
+    finally {
+        if ($null -ne $content) {
+            $content.Dispose()
+        }
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
 if ($Plan) {
     Write-Output "Plan: run a health and login smoke test without printing credentials or secret values."
     exit 0
@@ -20,7 +63,7 @@ $hostname = Get-WebAppHostName -AzureCli $AzureCli -ResourceGroup $metadata.reso
 $baseUri = "https://$hostname"
 
 foreach ($path in @("/health/live", "/health/ready")) {
-    $response = Invoke-WebRequest -Uri "$baseUri$path" -MaximumRedirection 0 -SkipHttpErrorCheck
+    $response = Invoke-NoRedirectWebRequest -Uri "$baseUri$path"
     if ($response.StatusCode -ne 200) {
         throw "Production health check failed for $path."
     }
@@ -34,7 +77,7 @@ if ([string]::IsNullOrWhiteSpace($credentialLine)) {
     throw "Bootstrap credentials do not have the expected local handoff format."
 }
 $email, $password = $credentialLine -split ':\s+', 2
-$login = Invoke-WebRequest -Uri "$baseUri/login" -Method Post -Body @{ email = $email; password = $password } -MaximumRedirection 0 -SkipHttpErrorCheck -SessionVariable session
+$login = Invoke-NoRedirectWebRequest -Uri "$baseUri/login" -Method Post -Body @{ email = $email; password = $password }
 if ($login.StatusCode -ne 303 -or $login.Headers.Location -notmatch '^/password/change$') {
     throw "Production login did not require the initial password change."
 }

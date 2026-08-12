@@ -43,18 +43,35 @@ $principalId = ($identityJson | Out-String | ConvertFrom-Json).principalId
 $keyVaultId = (Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "keyvault", "show", "--name", $metadata.keyVaultName, "--query", "id", "--output", "tsv"
 ) | Out-String).Trim()
-Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
-    "role", "assignment", "create", "--assignee-object-id", $principalId,
-    "--assignee-principal-type", "ServicePrincipal", "--role", "Key Vault Secrets User",
-    "--scope", $keyVaultId, "--output", "none"
-) | Out-Null
+$keyVaultSecretsUserAssignmentCount = (Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "role", "assignment", "list", "--assignee-object-id", $principalId, "--scope", $keyVaultId,
+    "--query", "[?roleDefinitionName=='Key Vault Secrets User'] | length(@)", "--output", "tsv"
+) | Out-String).Trim()
+if ($keyVaultSecretsUserAssignmentCount -eq "0") {
+    Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+        "role", "assignment", "create", "--assignee-object-id", $principalId,
+        "--assignee-principal-type", "ServicePrincipal", "--role", "Key Vault Secrets User",
+        "--scope", $keyVaultId, "--output", "none"
+    ) | Out-Null
+}
 
 $hostname = Get-WebAppHostName -AzureCli $AzureCli -ResourceGroup $metadata.resourceGroup -WebAppName $metadata.webAppName
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "webapp", "config", "set", "--resource-group", $metadata.resourceGroup, "--name", $metadata.webAppName,
     "--always-on", "true", "--web-sockets-enabled", "true", "--min-tls-version", "1.2",
-    "--health-check-path", "/health/ready", "--startup-file", "bash startup.sh", "--output", "none"
+    "--startup-file", "bash startup.sh", "--output", "none"
 ) | Out-Null
+$healthConfigPath = [System.IO.Path]::GetTempFileName()
+try {
+    @{ healthCheckPath = "/health/ready" } | ConvertTo-Json | Set-Content -LiteralPath $healthConfigPath -Encoding utf8
+    Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+        "webapp", "config", "set", "--resource-group", $metadata.resourceGroup, "--name", $metadata.webAppName,
+        "--generic-configurations", "@$healthConfigPath", "--output", "none"
+    ) | Out-Null
+}
+finally {
+    Remove-Item -LiteralPath $healthConfigPath -Force -ErrorAction SilentlyContinue
+}
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "webapp", "update", "--resource-group", $metadata.resourceGroup, "--name", $metadata.webAppName,
     "--https-only", "true", "--output", "none"
@@ -65,21 +82,28 @@ Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "--subnet", $metadata.webAppSubnetName, "--output", "none"
 ) | Out-Null
 
-$appSettings = @(
-    "OPENAI_API_KEY=@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-openai-api-key'))",
-    "OPENAI_VECTOR_STORE_ID=@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-openai-vector-store-id'))",
-    "DATABASE_URL=@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-database-url'))",
-    "APP_SESSION_SECRET=@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-app-session-secret'))",
-    "CHAINLIT_AUTH_SECRET=@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-chainlit-auth-secret'))",
-    "ENVIRONMENT=production",
-    "TRUSTED_HOSTS=[`"$hostname`"]",
-    "ATTACHMENT_STORAGE_PATH=/home/site/uploads",
-    "SCM_DO_BUILD_DURING_DEPLOYMENT=true"
-)
-$appSettingsArguments = @(
-    "webapp", "config", "appsettings", "set", "--resource-group", $metadata.resourceGroup,
-    "--name", $metadata.webAppName, "--settings"
-) + $appSettings
-Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments $appSettingsArguments | Out-Null
+$appSettings = [ordered]@{
+    OPENAI_API_KEY = "@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-openai-api-key'))"
+    OPENAI_VECTOR_STORE_ID = "@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-openai-vector-store-id'))"
+    DATABASE_URL = "@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-database-url'))"
+    APP_SESSION_SECRET = "@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-app-session-secret'))"
+    CHAINLIT_AUTH_SECRET = "@Microsoft.KeyVault(SecretUri=$(Get-KeyVaultSecretId $AzureCli $metadata.keyVaultName 'project-recovery-chainlit-auth-secret'))"
+    ENVIRONMENT = "production"
+    TRUSTED_HOSTS = "[`"$hostname`"]"
+    ATTACHMENT_STORAGE_PATH = "/home/site/uploads"
+    BOOTSTRAP_CREDENTIALS_PATH = "/home/data/bootstrap-credentials.txt"
+    SCM_DO_BUILD_DURING_DEPLOYMENT = "true"
+}
+$appSettingsPath = [System.IO.Path]::GetTempFileName()
+try {
+    $appSettings | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $appSettingsPath -Encoding utf8
+    Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+        "webapp", "config", "appsettings", "set", "--resource-group", $metadata.resourceGroup,
+        "--name", $metadata.webAppName, "--settings", "@$appSettingsPath", "--output", "none"
+    ) | Out-Null
+}
+finally {
+    Remove-Item -LiteralPath $appSettingsPath -Force -ErrorAction SilentlyContinue
+}
 
 Write-Output "Configuration completed with Key Vault references and managed identity."

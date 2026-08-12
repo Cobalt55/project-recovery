@@ -17,10 +17,21 @@ Run the safe plan mode first; it changes nothing and never reads secret values:
 .\scripts\azure\configure.ps1 -Plan
 ```
 
-Provision the complete stack in West US 3: a dedicated resource group, Basic B3
-Linux App Service, PostgreSQL Flexible Server, VNet/private DNS, and a new Key
-Vault. Then configure its managed identity, Key Vault references, HTTPS, TLS
-1.2, WebSockets, Always On, and the readiness health path:
+Provision the remaining West US 3 stack: PostgreSQL Flexible Server,
+VNet/private DNS, and a new Key Vault. The provisioning script validates and
+reuses the existing `project-recovery-westus3-rg` resource group,
+`project-recovery-westus3-b3-plan` Basic B3 Linux App Service plan, and
+`project-recovery-chat-wus3-amush` Linux Web App. It checks regional App
+Service quota only if that plan must be created. Then configure its managed
+identity, Key Vault references, HTTPS, TLS 1.2, WebSockets, Always On, and the
+readiness health path:
+
+The remaining resources use stable names so a failed run can resume safely:
+`project-recovery-kv-wus3` for Key Vault and
+`project-recovery-pg-wus3-amush` for PostgreSQL. In-progress metadata is saved
+before the first remaining resource mutation; reruns validate/reuse resources
+and reset the PostgreSQL administrator password before replacing the database
+connection secret.
 
 ```powershell
 .\scripts\azure\provision.ps1
@@ -45,16 +56,19 @@ PowerShell value, then stored only as a Key Vault secret.
 ## Initial database setup and credentials
 
 `startup.sh` runs `alembic upgrade head` before Uvicorn begins serving requests.
-After the first healthy deployment, run `scripts/bootstrap_users.py` in a
-production environment where the five application settings resolve from Key
-Vault. The resulting local handoff is
-`local-secrets/bootstrap-credentials.txt`; it is plaintext, access-controlled,
-ignored by Git, and must never be uploaded or pasted into logs.
+The configured `BOOTSTRAP_CREDENTIALS_PATH` is inside the Web App's persistent
+`/home/data` mount. On the first start only, it creates the two approved
+administrator accounts and writes the credential handoff there. `deploy.ps1`
+waits for that file, downloads it to the ignored, current-user-only local path
+`local-secrets/bootstrap-credentials.txt`, then deletes the remote plaintext
+before the smoke test. Reruns preserve the local handoff and attempt remote
+deletion again; passwords are never printed or committed.
 
 ## Deploy and smoke verification
 
 Deploy only a clean worktree. The script builds a zip from tracked files,
-restarts the Web App, and invokes the non-destructive smoke checks:
+restarts the Web App, retrieves the one-time bootstrap handoff securely, and
+invokes the non-destructive smoke checks:
 
 ```powershell
 .\scripts\azure\deploy.ps1

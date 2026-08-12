@@ -1,6 +1,7 @@
 import tomllib
 from pathlib import Path
 
+from alembic.config import Config
 from pydantic import SecretStr
 
 from project_recovery.config import ALLOWED_MODELS, Settings
@@ -36,6 +37,19 @@ def test_database_url_is_secret_and_redacted(monkeypatch):
     assert settings.database_url.get_secret_value() == database_url
     assert "db-password" not in repr(settings)
     assert "db-password" not in str(settings)
+
+
+def test_alembic_preserves_percent_encoded_database_urls():
+    """ConfigParser requires escaped percent signs while SQLAlchemy needs the original URL."""
+
+    database_url = "postgresql+asyncpg://user:password%3D@localhost/project_recovery"
+    alembic_env = Path(__file__).parents[2] / "alembic" / "env.py"
+    config = Config()
+
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+
+    assert config.get_main_option("sqlalchemy.url") == database_url
+    assert 'database_url.replace("%", "%%")' in alembic_env.read_text(encoding="utf-8")
 
 
 def test_mypy_uses_normal_import_following():

@@ -14,7 +14,12 @@ function Resolve-ApprovedAzureCli {
     param([string]$AzureCli)
 
     if ([string]::IsNullOrWhiteSpace($AzureCli)) {
-        $AzureCli = Join-Path (Split-Path (Get-RepositoryRoot) -Parent) "az-amusheno.ps1"
+        $commonGitDirectory = (& git -C (Get-RepositoryRoot) rev-parse --path-format=absolute --git-common-dir).Trim()
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commonGitDirectory)) {
+            throw "Unable to locate the repository root for the approved Azure wrapper."
+        }
+        $repositoryRoot = Split-Path -Parent $commonGitDirectory
+        $AzureCli = Join-Path $repositoryRoot "az-amusheno.ps1"
     }
     $resolved = Resolve-Path -LiteralPath $AzureCli -ErrorAction Stop
     if ($resolved.Path -notlike "*az-amusheno.ps1") {

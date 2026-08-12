@@ -39,5 +39,5 @@
   </table></div>{% else %}<p class="supporting-copy">No Knowledge resources match this view.</p>{% endif %}
   {% if has_next %}<p><a href="?offset={{ next_offset }}&limit={{ limit }}">Next page</a></p>{% endif %}
 </section>
-<script src="{{ url_for('static', path='knowledge.js') }}" defer></script>
+<script src="/static/knowledge.js" defer></script>
 {% endblock %}

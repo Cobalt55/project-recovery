@@ -119,7 +119,9 @@ class FakeChats:
         return conversation_id == self.conversation.id
 
 
-def _layer(tmp_path: Path, *, owner: bool = True) -> tuple[ChainlitDataLayer, FakeChats]:
+def _layer(
+    tmp_path: Path, *, owner: bool = True, http_context: bool = False
+) -> tuple[ChainlitDataLayer, FakeChats]:
     user_id = uuid4()
     principal_id = str(user_id if owner else uuid4())
     user = SimpleNamespace(
@@ -147,7 +149,7 @@ def _layer(tmp_path: Path, *, owner: bool = True) -> tuple[ChainlitDataLayer, Fa
         chats=chats,
         users=FakeUsers(user),
         attachment_root=tmp_path,
-        principal_provider=lambda: principal_id,
+        principal_provider=lambda: None if http_context else principal_id,
     )
     return layer, chats
 
@@ -212,6 +214,24 @@ async def test_cross_user_thread_access_is_rejected(tmp_path: Path) -> None:
     )
     assert page.data == []
     assert await layer.delete_feedback("feedback-1") is False
+
+
+@pytest.mark.asyncio
+async def test_http_history_uses_the_authenticated_filter_without_a_websocket_principal(
+    tmp_path: Path,
+) -> None:
+    """Chainlit's HTTP history endpoints authenticate before calling the data layer."""
+
+    layer, chats = _layer(tmp_path, http_context=True)
+
+    page = await layer.list_threads(
+        Pagination(first=25),
+        ThreadFilter(userId=str(chats.conversation.user_id)),
+    )
+    thread = await layer.get_thread("thread-1")
+
+    assert [item["id"] for item in page.data] == ["thread-1"]
+    assert thread is not None and thread["userId"] == str(chats.conversation.user_id)
 
 
 @pytest.mark.asyncio

@@ -185,12 +185,18 @@ class ChainlitDataLayer(BaseDataLayer):
         self, pagination: Pagination, filters: ThreadFilter
     ) -> PaginatedResponse[ThreadDict]:
         principal = self._principal_uuid()
-        requested = _uuid(filters.userId) if filters.userId else principal
-        if principal is None or requested != principal:
+        requested = _uuid(filters.userId)
+        if principal is not None:
+            if requested is not None and requested != principal:
+                return _empty_page()
+            user_id = principal
+        elif requested is not None:
+            user_id = requested
+        else:
             return _empty_page()
         first = min(max(pagination.first, 1), MAX_THREAD_PAGE)
         offset = _cursor_offset(pagination.cursor)
-        conversations = list(await self._chats.list_user_threads(principal, offset, first + 1))
+        conversations = list(await self._chats.list_user_threads(user_id, offset, first + 1))
         if filters.search:
             needle = filters.search.strip().casefold()
             conversations = [
@@ -209,7 +215,10 @@ class ChainlitDataLayer(BaseDataLayer):
         )
 
     async def get_thread(self, thread_id: str) -> ThreadDict | None:
-        conversation = await self._owned_thread(thread_id)
+        conversation = await self._chats.get_thread_by_chainlit_id(thread_id)
+        principal = self._principal_uuid()
+        if conversation is not None and principal is not None and conversation.user_id != principal:
+            conversation = None
         return await self._thread_dict(conversation) if conversation is not None else None
 
     async def update_thread(
