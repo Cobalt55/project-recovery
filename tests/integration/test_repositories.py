@@ -372,4 +372,5 @@ async def test_chainlit_records_upsert_by_stable_ui_identifiers(database: Databa
         await chats.get_attachment_by_chainlit_id(conversation.id, "element-1")
     ).id == attachment.id
     assert feedback.chainlit_feedback_id == "feedback-1"
-    assert await chats.delete_chainlit_feedback("feedback-1") is True
+    assert await chats.delete_chainlit_feedback("feedback-1", uuid4()) is False
+    assert await chats.delete_chainlit_feedback("feedback-1", user.id) is True
