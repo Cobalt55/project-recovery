@@ -1,10 +1,9 @@
 """Database-backed, idle-expiring browser session management."""
 
 import hashlib
-import hmac
 import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -48,8 +47,8 @@ class LoginResult:
     """Raw bearer values returned exactly once to the browser-facing layer."""
 
     session_id: UUID
-    session_token: str
-    csrf_token: str
+    session_token: str = field(repr=False, compare=False)
+    csrf_token: str = field(repr=False, compare=False)
 
 
 class AuthService(RepositoryBase):
@@ -72,17 +71,17 @@ class AuthService(RepositoryBase):
         async with self._sessions() as session:
             user = await session.scalar(select(User).where(User.email == normalized_email))
             if user is None:
-                self._passwords.verify_dummy(password)
+                await self._passwords.verify_dummy_async(password)
                 await self._audit(session, None, "login_failed")
                 await self._commit(session)
                 return None
-            password_ok = self._passwords.verify(user.password_hash, password)
+            password_ok = await self._passwords.verify_async(user.password_hash, password)
             if not password_ok or not user.is_active:
                 await self._audit(session, user.id, "login_failed")
                 await self._commit(session)
                 return None
-            if self._passwords.needs_rehash(user.password_hash):
-                user.password_hash = self._passwords.hash(password)
+            if await self._passwords.needs_rehash_async(user.password_hash):
+                user.password_hash = await self._passwords.hash_async(password)
             session_token = secrets.token_urlsafe(32)
             csrf_token = secrets.token_urlsafe(32)
             login_session = LoginSession(
@@ -106,18 +105,10 @@ class AuthService(RepositoryBase):
         """Resolve a token only for a current, active user within the idle window."""
         current_time = now or self._now()
         async with self._sessions() as session:
-            login_session = await session.scalar(
-                select(LoginSession).where(LoginSession.token_hash == token_hash(session_token))
-            )
-            if login_session is None or login_session.revoked_at is not None:
+            lifecycle = await self._valid_lifecycle(session, session_token, current_time)
+            if lifecycle is None:
                 return None
-            user = await session.get(User, login_session.user_id)
-            if user is None or not user.is_active:
-                return None
-            if current_time - login_session.last_seen_at >= SESSION_IDLE_TIMEOUT:
-                login_session.revoked_at = current_time
-                await self._commit(session)
-                return None
+            login_session, user = lifecycle
             if current_time - login_session.last_seen_at >= LAST_SEEN_WRITE_INTERVAL:
                 login_session.last_seen_at = current_time
                 login_session.expires_at = current_time + SESSION_IDLE_TIMEOUT
@@ -126,20 +117,24 @@ class AuthService(RepositoryBase):
 
     async def validate_csrf(self, session_token: str, csrf_token: str) -> bool:
         """Validate the distinct CSRF secret against a usable server-side session."""
-        if await self.current_user(session_token) is None:
-            return False
+        current_time = self._now()
         async with self._sessions() as session:
-            stored = await session.scalar(
-                select(LoginSession).where(LoginSession.token_hash == token_hash(session_token))
+            lifecycle = await self._valid_lifecycle(
+                session, session_token, current_time, csrf_token=csrf_token, lock=True
             )
-            return stored is not None and hmac.compare_digest(
-                stored.csrf_token_hash, token_hash(csrf_token)
-            )
+            if lifecycle is None:
+                return False
+            login_session, _ = lifecycle
+            if current_time - login_session.last_seen_at >= LAST_SEEN_WRITE_INTERVAL:
+                login_session.last_seen_at = current_time
+                login_session.expires_at = current_time + SESSION_IDLE_TIMEOUT
+                await self._commit(session)
+            return True
 
-    async def logout(self, session_token: str) -> bool:
-        """Revoke this session without revealing whether it was valid."""
+    async def logout(self, session_token: str) -> None:
+        """Best-effort revoke a session without revealing whether it was valid."""
         async with self._sessions() as session:
-            result = await session.execute(
+            await session.execute(
                 update(LoginSession)
                 .where(
                     LoginSession.token_hash == token_hash(session_token),
@@ -148,7 +143,33 @@ class AuthService(RepositoryBase):
                 .values(revoked_at=self._now())
             )
             await self._commit(session)
-            return bool(result.rowcount)
+        return None
+
+    async def rotate_session(self, session_token: str, csrf_token: str) -> LoginResult | None:
+        """Atomically exchange one authenticated browser session for fresh bearer values."""
+        now = self._now()
+        async with self._sessions() as session:
+            lifecycle = await self._valid_lifecycle(
+                session, session_token, now, csrf_token=csrf_token, lock=True
+            )
+            if lifecycle is None:
+                return None
+            old_session, user = lifecycle
+            fresh_session_token = secrets.token_urlsafe(32)
+            fresh_csrf_token = secrets.token_urlsafe(32)
+            fresh = LoginSession(
+                user_id=user.id,
+                token_hash=token_hash(fresh_session_token),
+                csrf_token_hash=token_hash(fresh_csrf_token),
+                created_at=now,
+                last_seen_at=now,
+                expires_at=now + SESSION_IDLE_TIMEOUT,
+            )
+            old_session.revoked_at = now
+            session.add(fresh)
+            await self._commit(session)
+            await session.refresh(fresh)
+            return LoginResult(fresh.id, fresh_session_token, fresh_csrf_token)
 
     async def change_password(
         self, session_token: str, current_password: str, new_password: str
@@ -156,23 +177,15 @@ class AuthService(RepositoryBase):
         """Replace a verified password and revoke all sessions atomically."""
         now = self._now()
         async with self._sessions() as session:
-            login_session = await session.scalar(
-                select(LoginSession).where(LoginSession.token_hash == token_hash(session_token))
-            )
-            if login_session is None or login_session.revoked_at is not None:
+            lifecycle = await self._valid_lifecycle(session, session_token, now, lock=True)
+            if lifecycle is None:
                 return False
-            if now - login_session.last_seen_at >= SESSION_IDLE_TIMEOUT:
-                login_session.revoked_at = now
-                await self._commit(session)
+            login_session, user = lifecycle
+            if not await self._passwords.verify_async(user.password_hash, current_password):
                 return False
-            user = await session.get(User, login_session.user_id)
-            if (
-                user is None
-                or not user.is_active
-                or not self._passwords.verify(user.password_hash, current_password)
-            ):
+            if not self._passwords.is_acceptable_replacement(current_password, new_password):
                 return False
-            user.password_hash = self._passwords.hash(new_password)
+            user.password_hash = await self._passwords.hash_async(new_password)
             user.force_password_change = False
             await session.execute(
                 update(LoginSession)
@@ -185,6 +198,42 @@ class AuthService(RepositoryBase):
             await self._audit(session, user.id, "password_changed")
             await self._commit(session)
             return True
+
+    async def _valid_lifecycle(
+        self,
+        session: AsyncSession,
+        session_token: str,
+        current_time: datetime,
+        *,
+        csrf_token: str | None = None,
+        lock: bool = False,
+    ) -> tuple[LoginSession, User] | None:
+        """Read and, when needed, revoke one lifecycle-valid session in a single query."""
+        statement = (
+            select(LoginSession, User)
+            .join(User, LoginSession.user_id == User.id)
+            .where(
+                LoginSession.token_hash == token_hash(session_token),
+                LoginSession.revoked_at.is_(None),
+                User.is_active.is_(True),
+            )
+        )
+        if csrf_token is not None:
+            statement = statement.where(LoginSession.csrf_token_hash == token_hash(csrf_token))
+        if lock:
+            statement = statement.with_for_update()
+        row = (await session.execute(statement)).one_or_none()
+        if row is None:
+            return None
+        login_session, user = row
+        if (
+            current_time - login_session.last_seen_at >= SESSION_IDLE_TIMEOUT
+            or current_time >= login_session.expires_at
+        ):
+            login_session.revoked_at = current_time
+            await self._commit(session)
+            return None
+        return login_session, user
 
     async def _audit(self, session: AsyncSession, target_user_id: UUID | None, action: str) -> None:
         session.add(

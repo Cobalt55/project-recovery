@@ -285,6 +285,25 @@ async def test_password_change_revokes_old_session_and_forces_a_new_login(
 
 
 @pytest.mark.asyncio
+async def test_password_change_rejects_reused_or_weak_replacement(database: Database) -> None:
+    """A forced bootstrap password must be replaced by a distinct sufficiently long password."""
+    user = await _create_user(database)
+    auth = AuthService(database.session(), PasswordService())
+    login = await auth.login(user.email, "correct horse battery staple")
+    assert login is not None
+
+    assert not await auth.change_password(
+        login.session_token,
+        "correct horse battery staple",
+        "correct horse battery staple",
+    )
+    assert not await auth.change_password(
+        login.session_token, "correct horse battery staple", "short"
+    )
+    assert await auth.current_user(login.session_token) is not None
+
+
+@pytest.mark.asyncio
 async def test_password_change_rejects_inactive_revoked_and_idle_expired_sessions(
     database: Database,
 ) -> None:
@@ -302,7 +321,7 @@ async def test_password_change_rejects_inactive_revoked_and_idle_expired_session
     revoked_user = await _create_user(database)
     revoked_login = await auth.login(revoked_user.email, "correct horse battery staple")
     assert revoked_login is not None
-    assert await auth.logout(revoked_login.session_token)
+    assert await auth.logout(revoked_login.session_token) is None
     assert not await auth.change_password(
         revoked_login.session_token, "correct horse battery staple", "new revoked password"
     )
@@ -352,3 +371,54 @@ async def test_csrf_validation_requires_the_independent_login_token(database: Da
     assert await require_csrf(auth, login.session_token, login.csrf_token) is True
     with pytest.raises(AuthorizationError, match="CSRF"):
         await require_csrf(auth, login.session_token, "wrong token")
+
+
+@pytest.mark.asyncio
+async def test_csrf_validation_rejects_revoked_inactive_and_idle_expired_sessions(
+    database: Database,
+) -> None:
+    """CSRF validation applies the full session lifecycle instead of merely comparing a hash."""
+    auth = AuthService(database.session(), PasswordService())
+
+    revoked_user = await _create_user(database)
+    revoked = await auth.login(revoked_user.email, "correct horse battery staple")
+    assert revoked is not None
+    assert await auth.logout(revoked.session_token) is None
+    assert await auth.logout("unknown-session-token") is None
+    assert not await auth.validate_csrf(revoked.session_token, revoked.csrf_token)
+
+    inactive_user = await _create_user(database)
+    inactive = await auth.login(inactive_user.email, "correct horse battery staple")
+    assert inactive is not None
+    await UserRepository(database.session()).set_active(inactive_user.id, False)
+    assert not await auth.validate_csrf(inactive.session_token, inactive.csrf_token)
+
+    expired_user = await _create_user(database)
+    expired = await auth.login(expired_user.email, "correct horse battery staple")
+    assert expired is not None
+    async with database.transaction() as session:
+        stored = await session.get(LoginSession, expired.session_id)
+        assert stored is not None
+        stored.last_seen_at = datetime.now(UTC) - SESSION_IDLE_TIMEOUT
+    assert not await auth.validate_csrf(expired.session_token, expired.csrf_token)
+
+
+@pytest.mark.asyncio
+async def test_session_rotation_allows_only_one_concurrent_claim_of_the_old_token(
+    database: Database,
+) -> None:
+    """Concurrent rotation attempts leave one fresh session and never preserve the old bearer."""
+    user = await _create_user(database)
+    auth = AuthService(database.session(), PasswordService())
+    login = await auth.login(user.email, "correct horse battery staple")
+    assert login is not None
+
+    first, second = await asyncio.gather(
+        auth.rotate_session(login.session_token, login.csrf_token),
+        auth.rotate_session(login.session_token, login.csrf_token),
+    )
+
+    rotations = [result for result in (first, second) if result is not None]
+    assert len(rotations) == 1
+    assert await auth.current_user(login.session_token) is None
+    assert await auth.current_user(rotations[0].session_token) is not None
