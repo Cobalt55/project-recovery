@@ -34,3 +34,4 @@ build/
 # Local test and runtime data
 .test-data/
 uploads/
+.chainlit/translations/
