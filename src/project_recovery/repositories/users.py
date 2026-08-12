@@ -6,7 +6,7 @@ from sqlalchemy import Select, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from project_recovery.models import AppSetting, LoginSession, User, UserManagementEvent
+from project_recovery.models import AppSetting, LoginSession, User, UserManagementEvent, utc_now
 from project_recovery.repositories._safety import page_limit, page_offset, sanitize_metadata
 from project_recovery.repositories._session import RepositoryBase
 
@@ -71,6 +71,12 @@ class UserRepository(RepositoryBase):
             managed = await session.get(User, user_id)
             if managed is None:
                 return None
+            if (
+                not is_active
+                and "admin" in managed.roles
+                and not await self._has_other_active_admin(session, managed.id)
+            ):
+                raise ValueError("at least one active administrator is required")
             managed.is_active = is_active
             if not is_active:
                 await session.execute(
@@ -88,6 +94,13 @@ class UserRepository(RepositoryBase):
             managed = await session.get(User, user_id)
             if managed is None:
                 return None
+            if (
+                "admin" in managed.roles
+                and "admin" not in roles
+                and managed.is_active
+                and not await self._has_other_active_admin(session, managed.id)
+            ):
+                raise ValueError("at least one active administrator is required")
             managed.roles = [role[:32] for role in roles]
             await self._commit(session)
             await session.refresh(managed)
@@ -146,6 +159,8 @@ class UserRepository(RepositoryBase):
         """List bounded, secret-free session columns for the login history page."""
         statement = (
             select(
+                LoginSession.id,
+                LoginSession.user_id,
                 User.email,
                 User.is_active,
                 LoginSession.created_at,
@@ -160,6 +175,25 @@ class UserRepository(RepositoryBase):
         )
         async with self._sessions() as session:
             return (await session.execute(statement)).all()
+
+    async def revoke_login(self, login_id: object) -> object | None:
+        """Revoke one session idempotently and return its user only if it was active."""
+        async with self._sessions() as session:
+            login = await session.get(LoginSession, login_id, with_for_update=True)
+            if login is None or login.revoked_at is not None:
+                return None
+            login.revoked_at = utc_now()
+            await self._commit(session)
+            return login.user_id
+
+    @staticmethod
+    async def _has_other_active_admin(session: AsyncSession, user_id: object) -> bool:
+        statement = select(User.id).where(
+            User.id != user_id,
+            User.is_active.is_(True),
+            User.roles.any("admin"),
+        )
+        return (await session.scalar(statement)) is not None
 
     async def record_management_event(
         self,

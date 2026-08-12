@@ -80,6 +80,20 @@ class FakeUsers:
                 last_login_at=None,
             ),
         ]
+        self.login_id = uuid4()
+        self.login_rows = [
+            SimpleNamespace(
+                id=self.login_id,
+                user_id=self.member_id,
+                email="member@example.test",
+                is_active=True,
+                created_at=datetime.now(UTC),
+                last_seen_at=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(hours=12),
+                revoked_at=None,
+            )
+        ]
+        self.audit_events: list[tuple[str, UUID, dict[str, str]]] = []
 
     async def get_settings(self, user_id: UUID) -> dict[str, str]:
         return self.saved_settings.get(user_id, {})
@@ -92,16 +106,7 @@ class FakeUsers:
         return self.rows[offset : offset + min(limit, 100)]
 
     async def list_logins(self, offset: int, limit: int):
-        return [
-            SimpleNamespace(
-                email="member@example.test",
-                is_active=True,
-                created_at=datetime.now(UTC),
-                last_seen_at=datetime.now(UTC),
-                expires_at=datetime.now(UTC) + timedelta(hours=12),
-                revoked_at=None,
-            )
-        ][: min(limit, 100)]
+        return self.login_rows[offset : offset + min(limit, 100)]
 
     async def create_user(
         self, actor_id: UUID, email: str, display_name: str, roles: list[str]
@@ -120,6 +125,17 @@ class FakeUsers:
         for row in self.rows:
             if row.id == user_id:
                 row.roles = roles
+                self.audit_events.append(("roles_changed", user_id, {"roles": ",".join(roles)}))
+
+    async def revoke_login(self, actor_id: UUID, login_id: UUID) -> bool:
+        for login in self.login_rows:
+            if login.id == login_id and login.revoked_at is None:
+                login.revoked_at = datetime.now(UTC)
+                self.audit_events.append(
+                    ("login_revoked", login.user_id, {"session_id": str(login_id)})
+                )
+                return True
+        return False
 
 
 class FakeDatabase:
@@ -171,6 +187,7 @@ def test_anonymous_requests_redirect_to_login_and_health_is_sanitized() -> None:
     assert ready.status_code == 200
     assert set(ready.json()) == {"database", "application", "correlation_id"}
     assert all("postgresql" not in str(value) for value in ready.json().values())
+    assert ready.headers["cache-control"] == "no-store"
 
 
 def test_member_navigation_and_settings_write_require_csrf() -> None:
@@ -232,6 +249,42 @@ def test_admin_user_actions_and_login_table_keep_secrets_out_of_html() -> None:
     assert "temporary-password-shown-once" in created.text
     assert deactivated.status_code == 303
     assert users.rows[1].is_active is False
+
+
+def test_admin_can_edit_roles_and_revoke_one_active_login_with_csrf() -> None:
+    """A missing role control, CSRF gate, or targeted-login revocation must change this result."""
+    client, _, users = _client()
+    _login(client, "admin@example.test")
+
+    users_page = client.get("/admin/users")
+    changed_roles = client.post(
+        f"/admin/users/{users.member_id}/roles",
+        data={"csrf_token": "test-csrf-value", "roles": "admin,user"},
+    )
+    logins_page = client.get("/admin/logins")
+    csrf_failure = client.post(f"/admin/logins/{users.login_id}/revoke")
+    revoked = client.post(
+        f"/admin/logins/{users.login_id}/revoke",
+        data={"csrf_token": "test-csrf-value"},
+    )
+    after_revoke = client.get("/admin/logins")
+
+    assert f'action="/admin/users/{users.member_id}/roles"' in users_page.text
+    assert 'name="roles"' in users_page.text
+    assert changed_roles.status_code == 303
+    assert users.rows[1].roles == ["admin", "user"]
+    assert ("roles_changed", users.member_id, {"roles": "admin,user"}) in users.audit_events
+    assert f'action="/admin/logins/{users.login_id}/revoke"' in logins_page.text
+    assert csrf_failure.status_code == 403
+    assert revoked.status_code == 303
+    assert users.login_rows[0].revoked_at is not None
+    assert (
+        "login_revoked",
+        users.member_id,
+        {"session_id": str(users.login_id)},
+    ) in users.audit_events
+    assert "Revoked" in after_revoke.text
+    assert f'action="/admin/logins/{users.login_id}/revoke"' not in after_revoke.text
 
 
 def test_forced_password_change_only_allows_change_or_logout_then_requires_new_login() -> None:

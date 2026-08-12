@@ -112,6 +112,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             )
             raise
         response.headers["X-Correlation-ID"] = correlation_id
+        response.headers["Cache-Control"] = "no-store"
         return response
 
     @app.get("/health/live")
@@ -302,7 +303,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
                 current.user_id, user_id, is_active == "true"
             )
         except ValueError:
-            return Response(status_code=404)
+            return Response("Unable to update this user.", status_code=400)
         return _redirect("/admin/users")
 
     @app.post("/admin/users/{user_id}/roles")
@@ -360,6 +361,18 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             "logins.html",
             _page_context(request, current, logins=logins, login_status=login_status),
         )
+
+    @app.post("/admin/logins/{login_id}/revoke")
+    async def revoke_login(
+        request: Request, login_id: UUID, csrf_token: Annotated[str | None, Form()] = None
+    ) -> Response:
+        current = await admin(request)
+        if not isinstance(current, CurrentUser):
+            return current
+        if not await _csrf_valid(request, application_services, csrf_token or ""):
+            return Response(status_code=403)
+        await application_services.users.revoke_login(current.user_id, login_id)
+        return _redirect("/admin/logins")
 
     return app
 

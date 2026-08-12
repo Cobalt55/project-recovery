@@ -88,6 +88,18 @@ class UserManagementService:
                 actor_id, user.id, "roles_changed", {"roles": normalized_roles}
             )
 
+    async def revoke_login(self, actor_id: UUID, login_id: UUID) -> bool:
+        """Revoke one browser session and audit it only when its state changes."""
+        async with self._database.transaction() as session:
+            users = UserRepository(session)
+            user_id = await users.revoke_login(login_id)
+            if user_id is None:
+                return False
+            await users.record_management_event(
+                actor_id, user_id, "login_revoked", {"session_id": str(login_id)}
+            )
+        return True
+
     @staticmethod
     def _validated_roles(roles: list[str]) -> list[str]:
         normalized = sorted({role.strip().casefold() for role in roles if role.strip()})

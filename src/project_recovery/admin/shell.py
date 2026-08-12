@@ -57,6 +57,8 @@ class UserAdminBoundary(Protocol):
 
     async def set_roles(self, actor_id: UUID, user_id: UUID, roles: list[str]) -> None: ...
 
+    async def revoke_login(self, actor_id: UUID, login_id: UUID) -> bool: ...
+
 
 @dataclass(slots=True)
 class AppServices:
