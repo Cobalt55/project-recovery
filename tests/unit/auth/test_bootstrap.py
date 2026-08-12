@@ -78,6 +78,43 @@ def test_windows_acl_rejects_a_preexisting_extra_access_rule(tmp_path, monkeypat
     assert not destination.exists()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows ACL support")
+def test_windows_acl_owner_sid_validation_allows_the_current_owner(tmp_path) -> None:
+    """The PowerShell ACL round-trip accepts a directory owned by the current SID."""
+    destination = tmp_path / "local-secrets" / "bootstrap-credentials.txt"
+
+    write_credentials_once(destination, [("pricejfl@gmail.com", "secret")])
+
+    assert destination.read_text(encoding="utf-8").endswith("pricejfl@gmail.com: secret\n")
+
+
+def test_windows_acl_rejects_an_owner_sid_that_differs_from_the_current_user(
+    tmp_path, monkeypatch
+) -> None:
+    """A claimed valid ACL cannot permit plaintext when owner and caller SIDs differ."""
+    destination = tmp_path / "local-secrets" / "bootstrap-credentials.txt"
+    monkeypatch.setattr(bootstrap_users.os, "name", "nt")
+    monkeypatch.setattr(
+        bootstrap_users.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            [],
+            0,
+            '{"valid": true, "canonical_path": "'
+            + str(destination.parent.resolve()).replace("\\", "\\\\")
+            + '", "current_sid": "S-1-5-21-current", "owner_sid": "S-1-5-21-other", '
+            '"dacl_protected": true, "current_full_control_rules": 1, '
+            '"other_access_rules": 0}',
+            "",
+        ),
+    )
+
+    with pytest.raises(PermissionError, match="ACL"):
+        write_credentials_once(destination, [("pricejfl@gmail.com", "secret")])
+
+    assert not destination.exists()
+
+
 def test_windows_acl_is_restricted_before_exclusive_plaintext_creation(
     tmp_path, monkeypatch
 ) -> None:
@@ -95,7 +132,8 @@ def test_windows_acl_is_restricted_before_exclusive_plaintext_creation(
             0,
             '{"valid": true, "canonical_path": "'
             + str(destination.parent.resolve()).replace("\\", "\\\\")
-            + '", "dacl_protected": true, "current_full_control_rules": 1, '
+            + '", "current_sid": "S-1-5-21-current", "owner_sid": "S-1-5-21-current", '
+            '"dacl_protected": true, "current_full_control_rules": 1, '
             '"other_access_rules": 0}',
             "",
         ),

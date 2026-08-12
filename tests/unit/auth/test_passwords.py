@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -163,3 +164,48 @@ def test_async_password_work_is_bounded_across_service_instances() -> None:
         return hasher.maximum_active
 
     assert asyncio.run(exercise()) == PASSWORD_WORK_LIMIT
+
+
+def test_argon_work_does_not_starve_the_default_executor() -> None:
+    """Saturating Argon workers leaves the default executor available to other work."""
+
+    class BlockingHasher:
+        def __init__(self) -> None:
+            self.enough_started = threading.Event()
+            self.release = threading.Event()
+            self.active = 0
+            self.lock = threading.Lock()
+
+        def verify(self, _encoded: str, _password: str) -> bool:
+            with self.lock:
+                self.active += 1
+                if self.active == PASSWORD_WORK_LIMIT:
+                    self.enough_started.set()
+            self.release.wait(timeout=5)
+            with self.lock:
+                self.active -= 1
+            return True
+
+    async def wait_for_workers(hasher: BlockingHasher) -> None:
+        while not hasher.enough_started.is_set():
+            await asyncio.sleep(0)
+
+    async def exercise() -> str:
+        hasher = BlockingHasher()
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=PASSWORD_WORK_LIMIT))
+        service = PasswordService(hasher=hasher)
+        argon_work = [
+            asyncio.create_task(service.verify_async("encoded", "password"))
+            for _ in range(PASSWORD_WORK_LIMIT)
+        ]
+        try:
+            await asyncio.wait_for(wait_for_workers(hasher), timeout=1)
+            return await asyncio.wait_for(
+                asyncio.to_thread(lambda: "default executor remained available"), timeout=0.25
+            )
+        finally:
+            hasher.release.set()
+            assert all(await asyncio.gather(*argon_work))
+
+    assert asyncio.run(exercise()) == "default executor remained available"

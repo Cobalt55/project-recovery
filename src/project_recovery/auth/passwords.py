@@ -3,6 +3,8 @@
 import asyncio
 import hmac
 import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 from argon2 import PasswordHasher
@@ -12,7 +14,10 @@ from argon2.low_level import Type
 MAX_PASSWORD_LENGTH = 1024
 MIN_REPLACEMENT_PASSWORD_LENGTH = 20
 PASSWORD_WORK_LIMIT = 4
-_PROCESS_PASSWORD_WORK_LIMITER = threading.BoundedSemaphore(PASSWORD_WORK_LIMIT)
+_PASSWORD_WORK_EXECUTOR = ThreadPoolExecutor(
+    max_workers=PASSWORD_WORK_LIMIT,
+    thread_name_prefix="project-recovery-argon",
+)
 
 
 class _PasswordHasher(Protocol):
@@ -99,13 +104,16 @@ class PasswordService:
             and not hmac.compare_digest(current_password, new_password)
         )
 
-    async def _run(self, operation: object, *args: str) -> object:
-        return await asyncio.to_thread(self._run_limited, operation, *args)
+    async def _run(self, operation: Callable[..., object], *args: str) -> object:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            _PASSWORD_WORK_EXECUTOR, self._run_limited, operation, *args
+        )
 
-    def _run_limited(self, operation: object, *args: str) -> object:
-        """Execute under global and optional local thread-safe capacity limits."""
-        with _PROCESS_PASSWORD_WORK_LIMITER, self._work_limiter:
-            return operation(*args)  # type: ignore[operator]
+    def _run_limited(self, operation: Callable[..., object], *args: str) -> object:
+        """Execute in the dedicated Argon pool under the optional local capacity limit."""
+        with self._work_limiter:
+            return operation(*args)
 
     @staticmethod
     def _is_permitted(password: str) -> bool:

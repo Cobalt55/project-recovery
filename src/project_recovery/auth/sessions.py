@@ -91,9 +91,16 @@ class AuthService(RepositoryBase):
         now = self._now()
         async with self._sessions() as session:
             user = await session.scalar(
-                select(User).where(User.id == snapshot_id).with_for_update()
+                select(User)
+                .where(
+                    User.id == snapshot_id,
+                    User.is_active.is_(True),
+                    User.password_hash == snapshot_hash,
+                )
+                .execution_options(populate_existing=True)
+                .with_for_update()
             )
-            if user is None or not user.is_active or user.password_hash != snapshot_hash:
+            if user is None:
                 await self._audit(session, snapshot_id, "login_failed")
                 await self._commit(session)
                 return None
@@ -198,6 +205,7 @@ class AuthService(RepositoryBase):
             if lifecycle is None:
                 return False
             _, user = lifecycle
+            snapshot_id = user.id
             snapshot_hash = user.password_hash
         if not await self._passwords.verify_async(snapshot_hash, current_password):
             return False
@@ -206,12 +214,17 @@ class AuthService(RepositoryBase):
         replacement_hash = await self._passwords.hash_async(new_password)
         now = self._now()
         async with self._sessions() as session:
-            lifecycle = await self._valid_lifecycle(session, session_token, now, lock=True)
+            lifecycle = await self._valid_lifecycle(
+                session,
+                session_token,
+                now,
+                lock=True,
+                expected_user_id=snapshot_id,
+                expected_password_hash=snapshot_hash,
+            )
             if lifecycle is None:
                 return False
             _, user = lifecycle
-            if user.password_hash != snapshot_hash:
-                return False
             user.password_hash = replacement_hash
             user.force_password_change = False
             await session.execute(
@@ -241,6 +254,8 @@ class AuthService(RepositoryBase):
         *,
         csrf_token: str | None = None,
         lock: bool = False,
+        expected_user_id: UUID | None = None,
+        expected_password_hash: str | None = None,
     ) -> tuple[LoginSession, User] | None:
         """Read and, when needed, revoke one lifecycle-valid session in a single query."""
         statement = (
@@ -254,6 +269,11 @@ class AuthService(RepositoryBase):
         )
         if csrf_token is not None:
             statement = statement.where(LoginSession.csrf_token_hash == token_hash(csrf_token))
+        if expected_user_id is not None:
+            statement = statement.where(User.id == expected_user_id)
+        if expected_password_hash is not None:
+            statement = statement.where(User.password_hash == expected_password_hash)
+        statement = statement.execution_options(populate_existing=True)
         if lock:
             statement = statement.with_for_update()
         row = (await session.execute(statement)).one_or_none()

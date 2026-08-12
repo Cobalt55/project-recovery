@@ -14,7 +14,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from project_recovery.auth.dependencies import (
     AuthorizationError,
@@ -25,7 +25,7 @@ from project_recovery.auth.dependencies import (
 from project_recovery.auth.passwords import PasswordService
 from project_recovery.auth.sessions import SESSION_IDLE_TIMEOUT, AuthService, token_hash
 from project_recovery.db import Database
-from project_recovery.models import LoginSession, UserManagementEvent
+from project_recovery.models import LoginSession, User, UserManagementEvent
 from project_recovery.repositories.users import UserRepository
 
 POSTGRES_IMAGE = "postgres:16"
@@ -468,3 +468,102 @@ async def test_login_rechecks_password_state_after_async_verification(database: 
             .where(LoginSession.user_id == user.id, LoginSession.revoked_at.is_(None))
         )
     assert active_sessions == 0
+
+
+@pytest.mark.asyncio
+async def test_caller_owned_login_rejects_a_hash_and_activity_change_during_verification(
+    database: Database,
+) -> None:
+    """A stale identity map cannot issue a session after another transaction changes the user."""
+
+    class PausingPasswordService(PasswordService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.verification_started = asyncio.Event()
+            self.release_verification = asyncio.Event()
+
+        async def verify_async(self, encoded: str, password: str) -> bool:
+            self.verification_started.set()
+            await self.release_verification.wait()
+            return await super().verify_async(encoded, password)
+
+    user = await _create_user(database)
+    replacement_hash = PasswordService().hash("another correct horse battery staple")
+    pausing_passwords = PausingPasswordService()
+
+    async with database.transaction() as caller_session:
+        contended_auth = AuthService(caller_session, pausing_passwords)
+        delayed_login = asyncio.create_task(
+            contended_auth.login(user.email, "correct horse battery staple")
+        )
+        await asyncio.wait_for(pausing_passwords.verification_started.wait(), timeout=10)
+        async with database.transaction() as changing_session:
+            await changing_session.execute(
+                update(User)
+                .where(User.id == user.id)
+                .values(password_hash=replacement_hash, is_active=False)
+            )
+        pausing_passwords.release_verification.set()
+
+        assert await delayed_login is None
+
+    async with database.session()() as session:
+        stored = await session.get(User, user.id)
+        active_sessions = await session.scalar(
+            select(func.count())
+            .select_from(LoginSession)
+            .where(LoginSession.user_id == user.id, LoginSession.revoked_at.is_(None))
+        )
+    assert stored is not None
+    assert stored.password_hash == replacement_hash
+    assert stored.is_active is False
+    assert active_sessions == 0
+
+
+@pytest.mark.asyncio
+async def test_caller_owned_password_change_rejects_a_hash_change_during_verification(
+    database: Database,
+) -> None:
+    """A stale caller session cannot overwrite a password changed while Argon2 verifies."""
+
+    class PausingPasswordService(PasswordService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.verification_started = asyncio.Event()
+            self.release_verification = asyncio.Event()
+
+        async def verify_async(self, encoded: str, password: str) -> bool:
+            self.verification_started.set()
+            await self.release_verification.wait()
+            return await super().verify_async(encoded, password)
+
+    user = await _create_user(database)
+    existing = await AuthService(database.session(), PasswordService()).login(
+        user.email, "correct horse battery staple"
+    )
+    assert existing is not None
+    replacement_hash = PasswordService().hash("a concurrently changed password")
+    pausing_passwords = PausingPasswordService()
+
+    async with database.transaction() as caller_session:
+        contended_auth = AuthService(caller_session, pausing_passwords)
+        delayed_change = asyncio.create_task(
+            contended_auth.change_password(
+                existing.session_token,
+                "correct horse battery staple",
+                "a distinct password with 20 chars",
+            )
+        )
+        await asyncio.wait_for(pausing_passwords.verification_started.wait(), timeout=10)
+        async with database.transaction() as changing_session:
+            await changing_session.execute(
+                update(User).where(User.id == user.id).values(password_hash=replacement_hash)
+            )
+        pausing_passwords.release_verification.set()
+
+        assert not await delayed_change
+
+    async with database.session()() as session:
+        stored = await session.get(User, user.id)
+    assert stored is not None
+    assert stored.password_hash == replacement_hash

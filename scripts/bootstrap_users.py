@@ -53,7 +53,8 @@ $path = [Environment]::GetEnvironmentVariable('PROJECT_RECOVERY_CREDENTIALS_DIRE
 if ([string]::IsNullOrWhiteSpace($path)) { throw 'credential directory is required' }
 $resolved = (Resolve-Path -LiteralPath $path).Path
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-$acl = Get-Acl -LiteralPath $resolved
+$directoryInfo = [System.IO.DirectoryInfo]::new($resolved)
+$acl = $directoryInfo.GetAccessControl()
 $acl.SetAccessRuleProtection($true, $false)
 foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
 $inheritance = 'ContainerInherit,ObjectInherit'
@@ -62,8 +63,9 @@ $rule = New-Object Security.AccessControl.FileSystemAccessRule(
 )
 [void]$acl.AddAccessRule($rule)
 $acl.SetOwner($sid)
-Set-Acl -LiteralPath $resolved -AclObject $acl
-$verified = Get-Acl -LiteralPath $resolved
+$directoryInfo.SetAccessControl($acl)
+$verified = $directoryInfo.GetAccessControl()
+$ownerSid = $verified.GetOwner([Security.Principal.SecurityIdentifier])
 $rules = @($verified.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
 $fullControl = [Security.AccessControl.FileSystemRights]::FullControl
 $current = @($rules | Where-Object {
@@ -71,13 +73,13 @@ $current = @($rules | Where-Object {
     (($_.FileSystemRights -band $fullControl) -eq $fullControl)
 })
 $other = @($rules | Where-Object { $_.IdentityReference -ne $sid })
-$valid = $verified.AreAccessRulesProtected -and $verified.Owner -eq $sid
+$valid = $verified.AreAccessRulesProtected -and $ownerSid -eq $sid
 $valid = $valid -and $current.Count -eq 1 -and $other.Count -eq 0
 $result = [pscustomobject]@{
     valid = $valid
     canonical_path = $resolved
     current_sid = $sid.Value
-    owner_sid = $verified.Owner.Value
+    owner_sid = $ownerSid.Value
     dacl_protected = $verified.AreAccessRulesProtected
     current_full_control_rules = $current.Count
     other_access_rules = $other.Count
@@ -106,6 +108,9 @@ $result | ConvertTo-Json -Compress
         or not isinstance(verification, dict)
         or verification.get("canonical_path") != str(directory.resolve())
         or verification.get("valid") is not True
+        or not isinstance(verification.get("current_sid"), str)
+        or not verification["current_sid"]
+        or verification.get("owner_sid") != verification["current_sid"]
         or verification.get("dacl_protected") is not True
         or verification.get("current_full_control_rules") != 1
         or verification.get("other_access_rules") != 0
