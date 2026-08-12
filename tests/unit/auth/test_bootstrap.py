@@ -14,10 +14,13 @@ import bootstrap_users  # noqa: E402
 from bootstrap_users import DEFAULT_CREDENTIALS_FILE, ROOT, write_credentials_once  # noqa: E402
 
 
-def test_bootstrap_credentials_are_written_once_without_stdout(tmp_path, capsys) -> None:
+def test_bootstrap_credentials_are_written_once_without_stdout(
+    tmp_path, capsys, monkeypatch
+) -> None:
     """The handoff file is exclusive and the console never receives passwords."""
     destination = tmp_path / "bootstrap-credentials.txt"
     credentials = [("pricejfl@gmail.com", "A-secret-password-value")]
+    monkeypatch.setattr(bootstrap_users.os, "name", "posix")
 
     write_credentials_once(destination, credentials)
 
@@ -53,6 +56,28 @@ def test_windows_acl_failure_prevents_plaintext_file_creation(
     assert capsys.readouterr().out == ""
 
 
+def test_windows_acl_rejects_a_preexisting_extra_access_rule(tmp_path, monkeypatch) -> None:
+    """A successful ACL command is insufficient when effective access includes another identity."""
+    destination = tmp_path / "local-secrets" / "bootstrap-credentials.txt"
+    monkeypatch.setattr(bootstrap_users.os, "name", "nt")
+    monkeypatch.setattr(
+        bootstrap_users.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            [],
+            0,
+            '{"valid": true, "canonical_path": "ignored", "dacl_protected": true, '
+            '"current_full_control_rules": 1, "other_access_rules": 1}',
+            "",
+        ),
+    )
+
+    with pytest.raises(PermissionError, match="ACL"):
+        write_credentials_once(destination, [("pricejfl@gmail.com", "secret")])
+
+    assert not destination.exists()
+
+
 def test_windows_acl_is_restricted_before_exclusive_plaintext_creation(
     tmp_path, monkeypatch
 ) -> None:
@@ -61,12 +86,19 @@ def test_windows_acl_is_restricted_before_exclusive_plaintext_creation(
     calls: list[object] = []
     original_open = os.open
     monkeypatch.setattr(bootstrap_users.os, "name", "nt")
-    monkeypatch.setattr(bootstrap_users.getpass, "getuser", lambda: "operator")
     monkeypatch.setattr(
         bootstrap_users.subprocess,
         "run",
-        lambda *args, **kwargs: calls.append(("icacls", args, kwargs))
-        or subprocess.CompletedProcess(args[0], 0, "", ""),
+        lambda *args, **kwargs: calls.append(("powershell", args, kwargs))
+        or subprocess.CompletedProcess(
+            args[0],
+            0,
+            '{"valid": true, "canonical_path": "'
+            + str(destination.parent.resolve()).replace("\\", "\\\\")
+            + '", "dacl_protected": true, "current_full_control_rules": 1, '
+            '"other_access_rules": 0}',
+            "",
+        ),
     )
     def record_open(*args, **kwargs):
         calls.append(("open", args, kwargs))
@@ -76,5 +108,7 @@ def test_windows_acl_is_restricted_before_exclusive_plaintext_creation(
 
     write_credentials_once(destination, [("pricejfl@gmail.com", "secret")])
 
-    assert calls[0][0] == "icacls"
+    assert calls[0][0] == "powershell"
+    assert calls[0][1][0][0].casefold().endswith("powershell.exe")
+    assert calls[0][2]["env"]["PROJECT_RECOVERY_CREDENTIALS_DIRECTORY"] == str(destination.parent)
     assert calls[1][0] == "open"

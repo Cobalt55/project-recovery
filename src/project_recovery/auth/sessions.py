@@ -67,21 +67,38 @@ class AuthService(RepositoryBase):
     async def login(self, email: str, password: str) -> LoginResult | None:
         """Authenticate a user and issue independently random session and CSRF tokens."""
         normalized_email = email.strip().casefold()
+        async with self._sessions() as session:
+            snapshot = await session.scalar(select(User).where(User.email == normalized_email))
+            if snapshot is not None:
+                snapshot_id = snapshot.id
+                snapshot_hash = snapshot.password_hash
+                snapshot_active = snapshot.is_active
+            else:
+                snapshot_id = None
+                snapshot_hash = ""
+                snapshot_active = False
+        if snapshot_id is None:
+            await self._passwords.verify_dummy_async(password)
+            return await self._record_login_failure(None)
+        password_ok = await self._passwords.verify_async(snapshot_hash, password)
+        if not password_ok or not snapshot_active:
+            return await self._record_login_failure(snapshot_id)
+        replacement_hash = (
+            await self._passwords.hash_async(password)
+            if await self._passwords.needs_rehash_async(snapshot_hash)
+            else None
+        )
         now = self._now()
         async with self._sessions() as session:
-            user = await session.scalar(select(User).where(User.email == normalized_email))
-            if user is None:
-                await self._passwords.verify_dummy_async(password)
-                await self._audit(session, None, "login_failed")
+            user = await session.scalar(
+                select(User).where(User.id == snapshot_id).with_for_update()
+            )
+            if user is None or not user.is_active or user.password_hash != snapshot_hash:
+                await self._audit(session, snapshot_id, "login_failed")
                 await self._commit(session)
                 return None
-            password_ok = await self._passwords.verify_async(user.password_hash, password)
-            if not password_ok or not user.is_active:
-                await self._audit(session, user.id, "login_failed")
-                await self._commit(session)
-                return None
-            if await self._passwords.needs_rehash_async(user.password_hash):
-                user.password_hash = await self._passwords.hash_async(password)
+            if replacement_hash is not None:
+                user.password_hash = replacement_hash
             session_token = secrets.token_urlsafe(32)
             csrf_token = secrets.token_urlsafe(32)
             login_session = LoginSession(
@@ -177,15 +194,25 @@ class AuthService(RepositoryBase):
         """Replace a verified password and revoke all sessions atomically."""
         now = self._now()
         async with self._sessions() as session:
+            lifecycle = await self._valid_lifecycle(session, session_token, now)
+            if lifecycle is None:
+                return False
+            _, user = lifecycle
+            snapshot_hash = user.password_hash
+        if not await self._passwords.verify_async(snapshot_hash, current_password):
+            return False
+        if not self._passwords.is_acceptable_replacement(current_password, new_password):
+            return False
+        replacement_hash = await self._passwords.hash_async(new_password)
+        now = self._now()
+        async with self._sessions() as session:
             lifecycle = await self._valid_lifecycle(session, session_token, now, lock=True)
             if lifecycle is None:
                 return False
-            login_session, user = lifecycle
-            if not await self._passwords.verify_async(user.password_hash, current_password):
+            _, user = lifecycle
+            if user.password_hash != snapshot_hash:
                 return False
-            if not self._passwords.is_acceptable_replacement(current_password, new_password):
-                return False
-            user.password_hash = await self._passwords.hash_async(new_password)
+            user.password_hash = replacement_hash
             user.force_password_change = False
             await session.execute(
                 update(LoginSession)
@@ -198,6 +225,13 @@ class AuthService(RepositoryBase):
             await self._audit(session, user.id, "password_changed")
             await self._commit(session)
             return True
+
+    async def _record_login_failure(self, user_id: UUID | None) -> None:
+        """Persist a generic failure audit without carrying a password operation transaction."""
+        async with self._sessions() as session:
+            await self._audit(session, user_id, "login_failed")
+            await self._commit(session)
+        return None
 
     async def _valid_lifecycle(
         self,

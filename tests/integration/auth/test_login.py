@@ -14,7 +14,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from project_recovery.auth.dependencies import (
     AuthorizationError,
@@ -422,3 +422,49 @@ async def test_session_rotation_allows_only_one_concurrent_claim_of_the_old_toke
     assert len(rotations) == 1
     assert await auth.current_user(login.session_token) is None
     assert await auth.current_user(rotations[0].session_token) is not None
+
+
+@pytest.mark.asyncio
+async def test_login_rechecks_password_state_after_async_verification(database: Database) -> None:
+    """A password change while Argon2 runs cannot leave an old-password session usable."""
+
+    class PausingPasswordService(PasswordService):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pause = False
+            self.verification_started = asyncio.Event()
+            self.release_verification = asyncio.Event()
+
+        async def verify_async(self, encoded: str, password: str) -> bool:
+            if self.pause:
+                self.verification_started.set()
+                await self.release_verification.wait()
+            return await super().verify_async(encoded, password)
+
+    user = await _create_user(database)
+    pausing_passwords = PausingPasswordService()
+    contended_auth = AuthService(database.session(), pausing_passwords)
+    existing = await contended_auth.login(user.email, "correct horse battery staple")
+    assert existing is not None
+    pausing_passwords.pause = True
+
+    delayed_login = asyncio.create_task(
+        contended_auth.login(user.email, "correct horse battery staple")
+    )
+    await pausing_passwords.verification_started.wait()
+    changing_auth = AuthService(database.session(), PasswordService())
+    assert await changing_auth.change_password(
+        existing.session_token,
+        "correct horse battery staple",
+        "a distinct password with 20 chars",
+    )
+    pausing_passwords.release_verification.set()
+
+    assert await delayed_login is None
+    async with database.session()() as session:
+        active_sessions = await session.scalar(
+            select(func.count())
+            .select_from(LoginSession)
+            .where(LoginSession.user_id == user.id, LoginSession.revoked_at.is_(None))
+        )
+    assert active_sessions == 0

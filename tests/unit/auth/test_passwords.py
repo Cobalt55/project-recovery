@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from project_recovery.auth.passwords import PasswordService
+from project_recovery.auth.passwords import PASSWORD_WORK_LIMIT, PasswordService
 from project_recovery.auth.routes import CookiePolicy
 from project_recovery.auth.sessions import LoginResult, token_hash
 
@@ -126,3 +126,40 @@ def test_async_password_verification_offloads_and_respects_the_shared_bound() ->
         return hasher.maximum_active
 
     assert asyncio.run(exercise()) == 1
+
+
+def test_async_password_work_is_bounded_across_service_instances() -> None:
+    """Creating services cannot multiply the process-wide Argon2 worker allowance."""
+
+    class BlockingHasher:
+        def __init__(self) -> None:
+            self.enough_started = threading.Event()
+            self.release = threading.Event()
+            self.active = 0
+            self.maximum_active = 0
+            self.lock = threading.Lock()
+
+        def verify(self, _encoded: str, _password: str) -> bool:
+            with self.lock:
+                self.active += 1
+                self.maximum_active = max(self.maximum_active, self.active)
+                if self.active >= PASSWORD_WORK_LIMIT:
+                    self.enough_started.set()
+            self.release.wait(timeout=1)
+            with self.lock:
+                self.active -= 1
+            return True
+
+    async def exercise() -> int:
+        hasher = BlockingHasher()
+        services = [PasswordService(hasher=hasher) for _ in range(PASSWORD_WORK_LIMIT + 1)]
+        tasks = [
+            asyncio.create_task(service.verify_async("encoded", "password")) for service in services
+        ]
+        await asyncio.to_thread(hasher.enough_started.wait, 1)
+        await asyncio.sleep(0)
+        hasher.release.set()
+        assert all(await asyncio.gather(*tasks))
+        return hasher.maximum_active
+
+    assert asyncio.run(exercise()) == PASSWORD_WORK_LIMIT

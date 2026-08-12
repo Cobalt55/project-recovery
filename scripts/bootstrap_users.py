@@ -2,7 +2,7 @@
 
 import argparse
 import asyncio
-import getpass
+import json
 import os
 import secrets
 import subprocess
@@ -46,19 +46,70 @@ def write_credentials_once(path: Path, credentials: Iterable[tuple[str, str]]) -
 
 def _restrict_windows_directory(directory: Path) -> None:
     """Fail closed unless Windows grants the current user sole directory access."""
+    environment = os.environ | {"PROJECT_RECOVERY_CREDENTIALS_DIRECTORY": str(directory)}
+    script = """
+$ErrorActionPreference = 'Stop'
+$path = [Environment]::GetEnvironmentVariable('PROJECT_RECOVERY_CREDENTIALS_DIRECTORY')
+if ([string]::IsNullOrWhiteSpace($path)) { throw 'credential directory is required' }
+$resolved = (Resolve-Path -LiteralPath $path).Path
+$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl = Get-Acl -LiteralPath $resolved
+$acl.SetAccessRuleProtection($true, $false)
+foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
+$inheritance = 'ContainerInherit,ObjectInherit'
+$rule = New-Object Security.AccessControl.FileSystemAccessRule(
+    $sid, 'FullControl', $inheritance, 'None', 'Allow'
+)
+[void]$acl.AddAccessRule($rule)
+$acl.SetOwner($sid)
+Set-Acl -LiteralPath $resolved -AclObject $acl
+$verified = Get-Acl -LiteralPath $resolved
+$rules = @($verified.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier]))
+$fullControl = [Security.AccessControl.FileSystemRights]::FullControl
+$current = @($rules | Where-Object {
+    $_.IdentityReference -eq $sid -and $_.AccessControlType -eq 'Allow' -and
+    (($_.FileSystemRights -band $fullControl) -eq $fullControl)
+})
+$other = @($rules | Where-Object { $_.IdentityReference -ne $sid })
+$valid = $verified.AreAccessRulesProtected -and $verified.Owner -eq $sid
+$valid = $valid -and $current.Count -eq 1 -and $other.Count -eq 0
+$result = [pscustomobject]@{
+    valid = $valid
+    canonical_path = $resolved
+    current_sid = $sid.Value
+    owner_sid = $verified.Owner.Value
+    dacl_protected = $verified.AreAccessRulesProtected
+    current_full_control_rules = $current.Count
+    other_access_rules = $other.Count
+}
+$result | ConvertTo-Json -Compress
+"""
     result = subprocess.run(
         [
-            "icacls",
-            str(directory),
-            "/inheritance:r",
-            "/grant:r",
-            f"{getpass.getuser()}:(OI)(CI)F",
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            script,
         ],
         check=False,
         capture_output=True,
         text=True,
+        env=environment,
     )
-    if result.returncode != 0:
+    try:
+        verification = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise PermissionError("unable to validate bootstrap credential directory ACL") from error
+    if (
+        result.returncode != 0
+        or not isinstance(verification, dict)
+        or verification.get("canonical_path") != str(directory.resolve())
+        or verification.get("valid") is not True
+        or verification.get("dacl_protected") is not True
+        or verification.get("current_full_control_rules") != 1
+        or verification.get("other_access_rules") != 0
+    ):
         raise PermissionError("unable to restrict bootstrap credential directory ACL")
 
 

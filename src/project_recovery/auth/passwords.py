@@ -2,6 +2,7 @@
 
 import asyncio
 import hmac
+import threading
 from typing import Protocol
 
 from argon2 import PasswordHasher
@@ -11,6 +12,7 @@ from argon2.low_level import Type
 MAX_PASSWORD_LENGTH = 1024
 MIN_REPLACEMENT_PASSWORD_LENGTH = 20
 PASSWORD_WORK_LIMIT = 4
+_PROCESS_PASSWORD_WORK_LIMITER = threading.BoundedSemaphore(PASSWORD_WORK_LIMIT)
 
 
 class _PasswordHasher(Protocol):
@@ -35,12 +37,15 @@ class PasswordService:
     _dummy_hash = _production_hasher.hash("project-recovery-dummy-password")
 
     def __init__(
-        self, hasher: _PasswordHasher | None = None, work_limit: int = PASSWORD_WORK_LIMIT
+        self,
+        hasher: _PasswordHasher | None = None,
+        work_limit: int = PASSWORD_WORK_LIMIT,
+        work_limiter: threading.BoundedSemaphore | None = None,
     ) -> None:
         if work_limit < 1:
             raise ValueError("password work limit must be positive")
         self._hasher = hasher or self._production_hasher
-        self._work_limit = asyncio.Semaphore(work_limit)
+        self._work_limiter = work_limiter or threading.BoundedSemaphore(work_limit)
 
     def hash(self, password: str) -> str:
         """Return an Argon2id hash for bootstrap and other synchronous callers."""
@@ -95,8 +100,12 @@ class PasswordService:
         )
 
     async def _run(self, operation: object, *args: str) -> object:
-        async with self._work_limit:
-            return await asyncio.to_thread(operation, *args)  # type: ignore[arg-type]
+        return await asyncio.to_thread(self._run_limited, operation, *args)
+
+    def _run_limited(self, operation: object, *args: str) -> object:
+        """Execute under global and optional local thread-safe capacity limits."""
+        with _PROCESS_PASSWORD_WORK_LIMITER, self._work_limiter:
+            return operation(*args)  # type: ignore[operator]
 
     @staticmethod
     def _is_permitted(password: str) -> bool:
