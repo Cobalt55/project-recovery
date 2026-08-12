@@ -224,11 +224,14 @@ class AgentRuntime:
                 session=session,
                 run_config=run_config,
             )
-            # ``run_streamed`` establishes the SDK trace before its stream is
-            # drained, so application spans created from this point are linked.
+            # Streaming runs execute in a background task, so their trace does
+            # not become the caller's current context. Parent application
+            # spans explicitly to the returned SDK trace.
+            trace_parent = getattr(result, "trace", None)
             with self._span(
                 "application_persistence",
                 data={"operation": "persist_user_message"},
+                parent=trace_parent,
             ):
                 await self._chats.append_message(
                     conversation_id=conversation.id,
@@ -243,6 +246,7 @@ class AgentRuntime:
                     conversation_id=conversation.id,
                     prompt_run_id=prompt_run.id,
                     trace_id=trace_id,
+                    trace_parent=trace_parent,
                     seen_tool_calls=seen_tool_calls,
                 )
                 for item in normalized:
@@ -267,6 +271,7 @@ class AgentRuntime:
             with self._span(
                 "application_persistence",
                 data={"operation": "persist_assistant_message"},
+                parent=trace_parent,
             ):
                 await self._chats.append_message(
                     conversation_id=conversation.id,
@@ -319,6 +324,7 @@ class AgentRuntime:
         conversation_id: UUID,
         prompt_run_id: UUID,
         trace_id: str,
+        trace_parent: object | None,
         seen_tool_calls: set[str],
     ) -> list[AgentEvent]:
         event_type = getattr(event, "type", None)
@@ -352,6 +358,7 @@ class AgentRuntime:
         with self._span(
             "knowledge_lookup_normalization",
             data={"tool_call_id": tool_call_id, "result_count": len(results)},
+            parent=trace_parent,
         ):
             await self._telemetry.record_tool_run(
                 user_id=user_id,

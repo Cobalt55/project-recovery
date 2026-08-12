@@ -129,10 +129,17 @@ class CapturingSpan:
 class SpanRecorder:
     def __init__(self) -> None:
         self.names: list[str] = []
+        self.parents: list[object | None] = []
 
     @contextmanager
-    def __call__(self, name: str, data: dict[str, object] | None = None):
+    def __call__(
+        self,
+        name: str,
+        data: dict[str, object] | None = None,
+        parent: object | None = None,
+    ):
         self.names.append(name)
+        self.parents.append(parent)
         yield CapturingSpan(name, data)
 
 
@@ -269,6 +276,7 @@ async def test_stream_turn_configures_agent_trace_session_usage_and_file_search(
         "knowledge_lookup_normalization",
         "application_persistence",
     ]
+    assert spans.parents == [runner.result.trace, runner.result.trace, runner.result.trace]
 
 
 @pytest.mark.asyncio
@@ -309,6 +317,7 @@ async def test_provider_failure_finishes_prompt_run_as_failed() -> None:
     provider_error = RuntimeError("provider down sk-test-secret")
     runner = FakeRunner(FakeStreamResult([], run_loop_exception=provider_error))
     telemetry = FakeTelemetryRepository()
+    spans = SpanRecorder()
     runtime = AgentRuntime(
         settings=_settings(),
         chat_repository=FakeChatRepository(),
@@ -316,6 +325,7 @@ async def test_provider_failure_finishes_prompt_run_as_failed() -> None:
         openai_client=FakeOpenAI(),
         runner=runner,
         session_factory=FakeSession,
+        span_factory=spans,
         trace_id_factory=lambda: "trace_failure",
     )
 
