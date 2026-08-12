@@ -70,7 +70,7 @@ def test_chainlit_mount_uses_authenticated_callbacks_and_custom_navigation() -> 
     assert auth_config.status_code == 200
     assert auth_config.json()["requireLogin"] is True
     assert auth_config.json()["headerAuth"] is True
-    assert auth_config.json()["passwordAuth"] is True
+    assert auth_config.json()["passwordAuth"] is False
     assert navigation.status_code == 200
     assert "/settings" in navigation.text
 
@@ -152,9 +152,19 @@ async def test_message_callback_streams_runtime_without_duplicate_persistence(
             return SimpleNamespace(id=user_id, is_active=True, force_password_change=False)
 
     users = ActiveUsers()
+
+    class ActiveAuth:
+        async def current_user(self, candidate: object) -> SimpleNamespace | None:
+            if candidate != "active-token":
+                return None
+            return SimpleNamespace(
+                user_id=user_id,
+                force_password_change=False,
+            )
+
     configure_chat(
         ChatDependencies(
-            auth=SimpleNamespace(),
+            auth=ActiveAuth(),
             users=users,
             chats=SimpleNamespace(),
             runtime=runtime,
@@ -162,6 +172,15 @@ async def test_message_callback_streams_runtime_without_duplicate_persistence(
         )
     )
     monkeypatch.setattr(chat_app.cl, "user_session", FakeSession())
+    monkeypatch.setattr(
+        chat_app.cl,
+        "context",
+        SimpleNamespace(
+            session=SimpleNamespace(
+                environ={"HTTP_COOKIE": "project_recovery_session=active-token"}
+            )
+        ),
+    )
     monkeypatch.setattr(chat_app.cl, "Message", FakeMessage)
 
     await chat_app.on_message(SimpleNamespace(content="Question"))
@@ -193,9 +212,19 @@ async def test_message_callback_revalidates_cached_user_before_each_turn(
             return SimpleNamespace(id=user_id, is_active=False, force_password_change=False)
 
     runtime = SimpleNamespace(calls=[])
+
+    class ActiveAuth:
+        async def current_user(self, candidate: object) -> SimpleNamespace | None:
+            if candidate != "active-token":
+                return None
+            return SimpleNamespace(
+                user_id=user_id,
+                force_password_change=False,
+            )
+
     configure_chat(
         ChatDependencies(
-            auth=SimpleNamespace(),
+            auth=ActiveAuth(),
             users=InactiveUsers(),
             chats=SimpleNamespace(),
             runtime=runtime,
@@ -203,6 +232,15 @@ async def test_message_callback_revalidates_cached_user_before_each_turn(
         )
     )
     monkeypatch.setattr(chat_app.cl, "user_session", FakeSession())
+    monkeypatch.setattr(
+        chat_app.cl,
+        "context",
+        SimpleNamespace(
+            session=SimpleNamespace(
+                environ={"HTTP_COOKIE": "project_recovery_session=active-token"}
+            )
+        ),
+    )
 
     class UnexpectedMessage:
         def __init__(self, content: str = "") -> None:
@@ -215,3 +253,57 @@ async def test_message_callback_revalidates_cached_user_before_each_turn(
 
     with pytest.raises(PermissionError, match="authentication"):
         await chat_app.on_message(SimpleNamespace(content="Question"))
+
+
+@pytest.mark.asyncio
+async def test_cached_chat_rejects_an_explicitly_revoked_application_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A signed Chainlit JWT cannot outlive its backing login session."""
+    user_id = uuid4()
+    conversation = SimpleNamespace(id=uuid4(), user_id=user_id)
+
+    class FakeSession:
+        def get(self, key: str, default: object = None) -> object:
+            return {
+                "user": chat_app.ChainlitUser(identifier=str(user_id)),
+                "conversation": conversation,
+            }.get(key, default)
+
+    class RevokedAuth:
+        def __init__(self) -> None:
+            self.calls: list[object] = []
+
+        async def current_user(self, candidate: object) -> None:
+            self.calls.append(candidate)
+            return None
+
+    class ActiveUsers:
+        async def get(self, candidate: object) -> SimpleNamespace:
+            assert candidate == user_id
+            return SimpleNamespace(id=user_id, is_active=True, force_password_change=False)
+
+    auth = RevokedAuth()
+    configure_chat(
+        ChatDependencies(
+            auth=auth,
+            users=ActiveUsers(),
+            chats=SimpleNamespace(),
+            runtime=SimpleNamespace(),
+            attachment_root=Path("uploads"),
+        )
+    )
+    monkeypatch.setattr(chat_app.cl, "user_session", FakeSession())
+    monkeypatch.setattr(
+        chat_app.cl,
+        "context",
+        SimpleNamespace(
+            session=SimpleNamespace(
+                environ={"HTTP_COOKIE": "project_recovery_session=revoked-token"}
+            )
+        ),
+    )
+
+    with pytest.raises(PermissionError, match="authentication"):
+        await chat_app._revalidated_conversation()
+    assert auth.calls == ["revoked-token"]

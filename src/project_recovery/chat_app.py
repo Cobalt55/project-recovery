@@ -53,6 +53,27 @@ def _current_user_id() -> UUID:
     return UUID(principal)
 
 
+def _application_session_token() -> str:
+    try:
+        environ = cl.context.session.environ
+    except Exception as error:
+        raise PermissionError("authentication is required") from error
+    raw_cookie = next(
+        (
+            str(value)
+            for key, value in environ.items()
+            if str(key).casefold() in {"http_cookie", "cookie"}
+        ),
+        "",
+    )
+    cookies = SimpleCookie()
+    cookies.load(raw_cookie)
+    morsel = cookies.get(SESSION_COOKIE)
+    if morsel is None or not morsel.value:
+        raise PermissionError("authentication is required")
+    return morsel.value
+
+
 def _chainlit_user(user: Any) -> ChainlitUser:
     return ChainlitUser(
         identifier=str(user.id),
@@ -89,36 +110,28 @@ async def authenticate_header(headers: Headers) -> ChainlitUser | None:
     return _chainlit_user(user) if user is not None and user.is_active else None
 
 
-@cl.password_auth_callback
-async def authenticate(username: str, password: str) -> ChainlitUser | None:
-    """Provide a direct-chat fallback while keeping raw app tokens out of JWT metadata."""
-    dependencies = get_chat_dependencies()
-    login = await dependencies.auth.login(username, password)
-    if login is None:
-        return None
-    try:
-        user = await dependencies.users.get_by_email(username)
-        if user is None or not user.is_active or user.force_password_change:
-            return None
-        return _chainlit_user(user)
-    finally:
-        # The Chainlit JWT is the direct-login credential. Revoke the unused
-        # application bearer session immediately so no orphan token remains.
-        await dependencies.auth.logout(login.session_token)
+async def _revalidate_authentication() -> UUID:
+    """Bind every stateful callback to the still-active application login row."""
+    user_id = _current_user_id()
+    current = await get_chat_dependencies().auth.current_user(_application_session_token())
+    if current is None or current.user_id != user_id or current.force_password_change:
+        raise PermissionError("authentication is required")
+    return user_id
 
 
 async def _ensure_conversation() -> Any:
     dependencies = get_chat_dependencies()
-    user = await dependencies.users.get(_current_user_id())
+    user_id = await _revalidate_authentication()
+    user = await dependencies.users.get(user_id)
     if user is None or not user.is_active or user.force_password_change:
         raise PermissionError("authentication is required")
     thread_id = cl.context.session.thread_id
     conversation = await dependencies.chats.get_thread_by_chainlit_id(thread_id)
     if conversation is not None:
-        if conversation.user_id != _current_user_id():
+        if conversation.user_id != user_id:
             raise PermissionError("thread is unavailable")
         return conversation
-    personal = await dependencies.users.get_settings(_current_user_id())
+    personal = await dependencies.users.get_settings(user_id)
     model = personal.get("model", "gpt-5.6-terra")
     effort = personal.get("reasoning_effort", "medium")
     validated = validate_chat_settings({MODEL_WIDGET_ID: model, REASONING_WIDGET_ID: effort}) or (
@@ -126,7 +139,7 @@ async def _ensure_conversation() -> Any:
         "medium",
     )
     return await dependencies.runtime.start_conversation(
-        user_id=_current_user_id(),
+        user_id=user_id,
         chainlit_thread_id=thread_id,
         model=validated[0],
         reasoning_effort=validated[1],
@@ -135,7 +148,7 @@ async def _ensure_conversation() -> Any:
 
 async def _revalidated_conversation() -> Any:
     """Reject stale Chainlit sessions before every stateful chat action."""
-    user_id = _current_user_id()
+    user_id = await _revalidate_authentication()
     dependencies = get_chat_dependencies()
     user = await dependencies.users.get(user_id)
     if user is None or not user.is_active or user.force_password_change:
@@ -255,11 +268,12 @@ async def on_message(message: cl.Message) -> None:
 @cl.on_chat_resume
 async def on_chat_resume(thread: ThreadDict) -> None:
     dependencies = get_chat_dependencies()
-    user = await dependencies.users.get(_current_user_id())
+    user_id = await _revalidate_authentication()
+    user = await dependencies.users.get(user_id)
     if user is None or not user.is_active or user.force_password_change:
         raise PermissionError("authentication is required")
     conversation = await dependencies.chats.get_thread_by_chainlit_id(thread["id"])
-    if conversation is None or conversation.user_id != _current_user_id():
+    if conversation is None or conversation.user_id != user_id:
         raise PermissionError("thread is unavailable")
     await _send_settings(conversation)
 
@@ -267,7 +281,6 @@ async def on_chat_resume(thread: ThreadDict) -> None:
 __all__ = [
     "MODEL_WIDGET_ID",
     "REASONING_WIDGET_ID",
-    "authenticate",
     "authenticate_header",
     "on_chat_resume",
     "on_chat_start",
