@@ -2,9 +2,9 @@
 param(
     [switch]$Plan,
     [string]$AzureCli,
-    [string]$ResourceGroup = "recovery-az-web-app_group",
-    [string]$Location = "eastus2",
-    [string]$KeyVaultName = "recovery-az-key-vault",
+    [string]$ResourceGroup = "project-recovery-westus3-rg",
+    [string]$Location = "westus3",
+    [string]$KeyVaultName,
     [string]$MetadataPath = (Join-Path $PSScriptRoot "..\..\local-secrets\azure-deployment.json"),
     [Security.SecureString]$PostgresAdminPassword
 )
@@ -28,9 +28,25 @@ if (Test-Path -LiteralPath $MetadataPath -PathType Leaf) {
 $subscriptionId = (Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "account", "show", "--query", "id", "--output", "tsv"
 ) | Out-String).Trim()
+$signedInUserObjectId = (Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "ad", "signed-in-user", "show", "--query", "id", "--output", "tsv"
+) | Out-String).Trim()
+$regionalQuotaJson = Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "rest", "--method", "get",
+    "--url", "https://management.azure.com/subscriptions/$subscriptionId/providers/Microsoft.Web/locations/$Location/usages?api-version=2025-05-01",
+    "--query", "value[?name.value=='*'] | [0].{current:currentValue,limit:limit}",
+    "--output", "json"
+)
+$regionalQuota = $regionalQuotaJson | Out-String | ConvertFrom-Json
+if ($null -eq $regionalQuota -or [int]$regionalQuota.limit -lt 1) {
+    throw "App Service Total Regional VMs quota is zero in $Location. Request a quota increase before provisioning."
+}
 $webAppName = New-SafeResourceName "project-recovery-chat"
 $planName = "$webAppName-plan"
 $postgresServerName = New-SafeResourceName "project-recovery-chat-db"
+if ([string]::IsNullOrWhiteSpace($KeyVaultName)) {
+    $KeyVaultName = (New-SafeResourceName "prwest3kv").Replace("-", "")
+}
 $databaseName = "projectrecovery"
 $vnetName = "$webAppName-vnet"
 $postgresSubnetName = "postgres"
@@ -45,9 +61,29 @@ if ($resourceGroupExists -ne "true") {
         "group", "create", "--name", $ResourceGroup, "--location", $Location, "--output", "none"
     ) | Out-Null
 }
+else {
+    $resourceGroupLocation = (Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+        "group", "show", "--name", $ResourceGroup, "--query", "location", "--output", "tsv"
+    ) | Out-String).Trim()
+    if ($resourceGroupLocation -ne $Location) {
+        throw "The existing deployment resource group is not in the requested location."
+    }
+}
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "appservice", "plan", "create", "--resource-group", $ResourceGroup, "--name", $planName,
     "--sku", "B3", "--is-linux", "--output", "none"
+) | Out-Null
+Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "keyvault", "create", "--resource-group", $ResourceGroup, "--name", $KeyVaultName,
+    "--location", $Location, "--enable-rbac-authorization", "true", "--output", "none"
+) | Out-Null
+$keyVaultId = (Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "keyvault", "show", "--name", $KeyVaultName, "--query", "id", "--output", "tsv"
+) | Out-String).Trim()
+Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "role", "assignment", "create", "--assignee-object-id", $signedInUserObjectId,
+    "--assignee-principal-type", "User", "--role", "Key Vault Secrets Officer",
+    "--scope", $keyVaultId, "--output", "none"
 ) | Out-Null
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "webapp", "create", "--resource-group", $ResourceGroup, "--plan", $planName, "--name", $webAppName,

@@ -2,9 +2,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ExpectedAzureUser = "amusheno@outlook.com"
-$DefaultResourceGroup = "recovery-az-web-app_group"
-$DefaultLocation = "eastus2"
-$DefaultKeyVaultName = "recovery-az-key-vault"
+$DefaultResourceGroup = "project-recovery-westus3-rg"
+$DefaultLocation = "westus3"
+$DefaultKeyVaultNamePrefix = "prwest3kv"
 
 function Get-RepositoryRoot {
     return (Resolve-Path (Join-Path $PSScriptRoot "..\..") -ErrorAction Stop).Path

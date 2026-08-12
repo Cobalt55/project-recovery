@@ -99,3 +99,32 @@ def test_deployment_uses_private_postgres_networking_and_packages_web_assets() -
     assert '"group", "exists"' in provision
     assert "templates/*.html" in pyproject
     assert "static/*" in pyproject
+
+
+def test_complete_stack_defaults_to_new_west_us_3_resources() -> None:
+    """Prevent accidental reuse of the East US 2 resource group or Key Vault."""
+
+    common = (ROOT / "scripts" / "azure" / "common.ps1").read_text(encoding="utf-8")
+    provision = (ROOT / "scripts" / "azure" / "provision.ps1").read_text(encoding="utf-8")
+    operations = (ROOT / "docs" / "operations" / "azure-deployment.md").read_text(encoding="utf-8")
+
+    assert '$DefaultLocation = "westus3"' in common
+    assert '$DefaultResourceGroup = "project-recovery-westus3-rg"' in common
+    assert '[string]$Location = "westus3"' in provision
+    assert '[string]$ResourceGroup = "project-recovery-westus3-rg"' in provision
+    assert '"keyvault", "create"' in provision
+    assert '"--location", $Location' in provision
+    assert "recovery-az-key-vault" not in common
+    assert "West US 3" in operations
+    assert "East US 2" not in operations
+
+
+def test_provisioning_checks_regional_app_service_quota_before_mutation() -> None:
+    """A zero-quota subscription must not be left with a partial resource group."""
+
+    provision = (ROOT / "scripts" / "azure" / "provision.ps1").read_text(encoding="utf-8")
+
+    quota_probe = "Microsoft.Web/locations/$Location/usages"
+    first_mutation = '"group", "create"'
+    assert quota_probe in provision
+    assert provision.index(quota_probe) < provision.index(first_mutation)

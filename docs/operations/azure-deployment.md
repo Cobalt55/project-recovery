@@ -17,9 +17,10 @@ Run the safe plan mode first; it changes nothing and never reads secret values:
 .\scripts\azure\configure.ps1 -Plan
 ```
 
-Provision the East US 2 Basic B3 Linux App Service, then configure its managed
-identity, Key Vault references, HTTPS, TLS 1.2, WebSockets, Always On, and the
-readiness health path:
+Provision the complete stack in West US 3: a dedicated resource group, Basic B3
+Linux App Service, PostgreSQL Flexible Server, VNet/private DNS, and a new Key
+Vault. Then configure its managed identity, Key Vault references, HTTPS, TLS
+1.2, WebSockets, Always On, and the readiness health path:
 
 ```powershell
 .\scripts\azure\provision.ps1
@@ -29,6 +30,10 @@ readiness health path:
 The scripts persist only resource names and IDs to
 `local-secrets/azure-deployment.json`. It is ignored by Git. Local OpenAI input
 files are read directly into Key Vault and are never printed.
+
+The deployment intentionally does not reuse the pre-existing resource group or
+Key Vault in another region. All application resources and their private
+networking are co-located in West US 3.
 
 The PostgreSQL Flexible Server uses `Standard_B1ms`, 32 GiB storage, seven-day
 backup retention, and no high availability. It has no public endpoint: a
