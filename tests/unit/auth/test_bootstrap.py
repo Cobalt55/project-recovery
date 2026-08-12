@@ -126,18 +126,21 @@ def test_windows_acl_is_restricted_before_exclusive_plaintext_creation(
     monkeypatch.setattr(
         bootstrap_users.subprocess,
         "run",
-        lambda *args, **kwargs: calls.append(("powershell", args, kwargs))
-        or subprocess.CompletedProcess(
-            args[0],
-            0,
-            '{"valid": true, "canonical_path": "'
-            + str(destination.parent.resolve()).replace("\\", "\\\\")
-            + '", "current_sid": "S-1-5-21-current", "owner_sid": "S-1-5-21-current", '
-            '"dacl_protected": true, "current_full_control_rules": 1, '
-            '"other_access_rules": 0}',
-            "",
+        lambda *args, **kwargs: (
+            calls.append(("powershell", args, kwargs))
+            or subprocess.CompletedProcess(
+                args[0],
+                0,
+                '{"valid": true, "canonical_path": "'
+                + str(destination.parent.resolve()).replace("\\", "\\\\")
+                + '", "current_sid": "S-1-5-21-current", "owner_sid": "S-1-5-21-current", '
+                '"dacl_protected": true, "current_full_control_rules": 1, '
+                '"other_access_rules": 0}',
+                "",
+            )
         ),
     )
+
     def record_open(*args, **kwargs):
         calls.append(("open", args, kwargs))
         return original_open(*args, **kwargs)

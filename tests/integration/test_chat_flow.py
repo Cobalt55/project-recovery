@@ -144,6 +144,7 @@ async def test_message_callback_streams_runtime_without_duplicate_persistence(
             return SimpleNamespace(final_output="Grounded answer")
 
     runtime = FakeRuntime()
+
     class ActiveUsers:
         async def get(self, candidate: object) -> SimpleNamespace | None:
             if candidate != user_id:
@@ -202,6 +203,7 @@ async def test_message_callback_revalidates_cached_user_before_each_turn(
         )
     )
     monkeypatch.setattr(chat_app.cl, "user_session", FakeSession())
+
     class UnexpectedMessage:
         def __init__(self, content: str = "") -> None:
             self.content = content

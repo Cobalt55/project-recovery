@@ -19,9 +19,7 @@ _SENSITIVE_VALUE = re.compile(
     r"(?im)(api[_-]?key|authorization|cookie|password|secret|session|csrf|token)"
     r"(\s*[:=]\s*)[^\r\n,;]+"
 )
-_CREDENTIAL_URL = re.compile(
-    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@[^\s,;]+"
-)
+_CREDENTIAL_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@[^\s,;]+")
 _BEARER_TOKEN = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}")
 _OPENAI_KEY = re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b")
 
