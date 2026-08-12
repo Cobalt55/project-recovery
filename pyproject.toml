@@ -9,6 +9,7 @@ description = "Project Recovery authenticated knowledge-backed workspace"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.14,<2",
+    "argon2-cffi==25.1.0",
     "pydantic-settings>=2.6,<3",
     "sqlalchemy[asyncio]>=2.0,<3",
     "asyncpg>=0.30,<1",
