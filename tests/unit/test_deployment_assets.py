@@ -128,3 +128,13 @@ def test_provisioning_checks_regional_app_service_quota_before_mutation() -> Non
     first_mutation = '"group", "create"'
     assert quota_probe in provision
     assert provision.index(quota_probe) < provision.index(first_mutation)
+
+
+def test_app_service_plan_uses_the_requested_location_explicitly() -> None:
+    """The plan must not silently inherit a differently located resource group."""
+
+    provision = (ROOT / "scripts" / "azure" / "provision.ps1").read_text(encoding="utf-8")
+    plan_create = provision.split('"appservice", "plan", "create"', maxsplit=1)[1]
+    plan_create = plan_create.split(") | Out-Null", maxsplit=1)[0]
+
+    assert '"--location", $Location' in plan_create

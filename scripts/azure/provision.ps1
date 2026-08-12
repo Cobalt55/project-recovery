@@ -71,7 +71,7 @@ else {
 }
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "appservice", "plan", "create", "--resource-group", $ResourceGroup, "--name", $planName,
-    "--sku", "B3", "--is-linux", "--output", "none"
+    "--location", $Location, "--sku", "B3", "--is-linux", "--output", "none"
 ) | Out-Null
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "keyvault", "create", "--resource-group", $ResourceGroup, "--name", $KeyVaultName,
