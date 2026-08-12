@@ -53,3 +53,17 @@ def test_diagnostics_are_bounded_and_do_not_leak_database_urls() -> None:
     assert len(rendered.encode("utf-8")) <= 4_000
     assert database_url not in rendered
     assert "db-password" not in rendered
+
+
+def test_standalone_bearer_cookie_and_openai_key_values_are_redacted() -> None:
+    """Unkeyed provider and bearer values never survive operational formatting."""
+    rendered = safe_text(
+        "Bearer bearer-value-123456789; "
+        "project_recovery_session=session-value-123456789; "
+        "provider returned sk-proj-abcdefghijklmnopqrstuvwxyz"
+    )
+
+    assert "bearer-value-123456789" not in rendered
+    assert "session-value-123456789" not in rendered
+    assert "sk-proj-abcdefghijklmnopqrstuvwxyz" not in rendered
+    assert rendered.count(REDACTED) == 3

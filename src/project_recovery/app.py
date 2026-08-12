@@ -27,6 +27,7 @@ from project_recovery.admin.tool_use import tool_run_rows
 from project_recovery.admin.users import UserManagementService
 from project_recovery.agent_runtime import AgentRuntime
 from project_recovery.auth.passwords import PasswordService
+from project_recovery.auth.rate_limit import LoginRateLimiter
 from project_recovery.auth.sessions import AuthService, CurrentUser
 from project_recovery.chat_state import ChatDependencies, configure_chat
 from project_recovery.config import (
@@ -142,6 +143,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     configured = settings or get_settings()
     application_services = services or _services(configured)
     templates = Jinja2Templates(directory=str(PACKAGE_ROOT / "templates"))
+    login_limiter = LoginRateLimiter()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -245,14 +247,25 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     async def login(
         request: Request, email: Annotated[str, Form()], password: Annotated[str, Form()]
     ) -> Response:
+        client_address = request.client.host if request.client is not None else "unknown"
+        if not await login_limiter.is_allowed(client_address, email):
+            return templates.TemplateResponse(
+                request,
+                "login.html",
+                {"error": "We could not sign you in with those details."},
+                status_code=429,
+                headers={"Retry-After": "900"},
+            )
         result = await application_services.auth.login(email, password)
         if result is None:
+            await login_limiter.record_failure(client_address, email)
             return templates.TemplateResponse(
                 request,
                 "login.html",
                 {"error": "We could not sign you in with those details."},
                 status_code=401,
             )
+        await login_limiter.record_success(client_address, email)
         current = await application_services.auth.current_user(result.session_token)
         response = _redirect(
             "/password/change" if current and current.force_password_change else "/settings"

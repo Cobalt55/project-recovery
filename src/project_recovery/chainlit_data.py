@@ -78,7 +78,10 @@ class ChainlitDataLayer(BaseDataLayer):
         return await self.get_user(user.identifier)
 
     async def delete_feedback(self, feedback_id: str) -> bool:
-        return bool(await self._chats.delete_chainlit_feedback(feedback_id))
+        principal = self._principal_uuid()
+        if principal is None:
+            return False
+        return bool(await self._chats.delete_chainlit_feedback(feedback_id, principal))
 
     async def upsert_feedback(self, feedback: Feedback) -> str:
         thread_id = feedback.threadId

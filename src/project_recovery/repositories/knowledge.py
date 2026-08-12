@@ -85,6 +85,17 @@ class KnowledgeRepository(RepositoryBase):
         async with self._sessions() as session:
             return (await session.scalars(statement)).all()
 
+    async def list_queued(self, limit: int = 100) -> Sequence[KnowledgeResource]:
+        """Return bounded uploads whose background dispatch was interrupted."""
+        statement = (
+            select(KnowledgeResource)
+            .where(KnowledgeResource.status == "queued")
+            .order_by(KnowledgeResource.updated_at.asc())
+            .limit(min(max(limit, 1), 100))
+        )
+        async with self._sessions() as session:
+            return (await session.scalars(statement)).all()
+
     async def force_update(self, resource_id: UUID, **changes: object) -> KnowledgeResource | None:
         """Update provider IDs and status after bounded recovery/cleanup work."""
         allowed = {

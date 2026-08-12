@@ -83,6 +83,10 @@ class FakeRepository:
         del before, limit
         return []
 
+    async def list_queued(self, limit):
+        del limit
+        return [self.resource] if self.resource and self.resource.status == "queued" else []
+
 
 class FakeFiles:
     def __init__(self) -> None:
@@ -181,3 +185,64 @@ async def test_provider_failure_cleans_up_and_leaves_retryable_error(tmp_path: P
     assert files.deleted == ["file-1"]
     assert await service.retry(resource.id) is True
     assert await service.retry(resource.id) is False
+
+
+@pytest.mark.asyncio
+async def test_processing_resource_cannot_be_deleted_mid_ingestion(tmp_path: Path) -> None:
+    """Deletion cannot race an in-flight provider upload and resurrect its row."""
+    repository = FakeRepository()
+    repository.resource = SimpleNamespace(
+        id=uuid4(),
+        status="processing",
+        provider_file_id="file-1",
+        vector_store_file_id="file-1",
+        metadata_json={},
+    )
+    files = FakeFiles()
+    vector_files = FakeVectorFiles()
+    service = KnowledgeService(
+        repository=repository,
+        openai_client=SimpleNamespace(
+            files=files,
+            vector_stores=SimpleNamespace(files=vector_files),
+        ),
+        vector_store_id="vs-only",
+        staging_root=tmp_path,
+    )
+
+    assert await service.delete(repository.resource.id) is False
+    assert repository.resource.status == "processing"
+    assert files.deleted == []
+    assert vector_files.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_startup_recovery_schedules_queued_uploads(tmp_path: Path) -> None:
+    """A restart between the 202 response and background dispatch cannot strand queued work."""
+    repository = FakeRepository()
+    files = FakeFiles()
+    vector_files = FakeVectorFiles()
+    service = KnowledgeService(
+        repository=repository,
+        openai_client=SimpleNamespace(
+            files=files,
+            vector_stores=SimpleNamespace(files=vector_files),
+        ),
+        vector_store_id="vs-only",
+        staging_root=tmp_path,
+        poll_interval=0,
+    )
+    await service.queue_upload(
+        filename="queued.txt",
+        content=b"recover me",
+        category=None,
+        description=None,
+    )
+
+    assert await service.recover_stale() == 1
+    for _ in range(10):
+        if repository.resource.status == "ready":
+            break
+        await __import__("asyncio").sleep(0)
+
+    assert repository.resource.status == "ready"

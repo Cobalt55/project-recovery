@@ -50,6 +50,7 @@ class KnowledgeService:
         self._staging_root = Path(staging_root).resolve()
         self._poll_interval = poll_interval
         self._poll_timeout = poll_timeout
+        self._recovery_tasks: set[asyncio.Task[None]] = set()
 
     async def queue_upload(
         self,
@@ -113,11 +114,15 @@ class KnowledgeService:
                 purpose="assistants",
             )
             provider_file_id = uploaded.id
-            await self._repository.force_update(
+            if not await self._repository.transition(
                 resource.id,
+                "processing",
+                "processing",
                 provider_file_id=provider_file_id,
                 vector_store_file_id=provider_file_id,
-            )
+            ):
+                await self._cleanup_provider(provider_file_id)
+                return
             attachment = await self._client.vector_stores.files.create(
                 self._vector_store_id,
                 file_id=provider_file_id,
@@ -130,23 +135,27 @@ class KnowledgeService:
             if attachment.status != "completed":
                 detail = getattr(getattr(attachment, "last_error", None), "message", None)
                 raise RuntimeError(str(detail or f"Ingestion {attachment.status}."))
-            await self._repository.force_update(
+            if not await self._repository.transition(
                 resource.id,
-                status="ready",
+                "processing",
+                "ready",
                 error_message=None,
                 provider_file_id=provider_file_id,
                 vector_store_file_id=provider_file_id,
                 metadata={},
-            )
+            ):
+                await self._cleanup_provider(provider_file_id)
+                return
             shutil.rmtree(path.parent, ignore_errors=True)
         except Exception as error:
             cleanup_error = await self._cleanup_provider(provider_file_id)
             message = redact_text(str(error), 1500) or "Knowledge ingestion failed."
             if cleanup_error:
                 message = f"{message} Cleanup: {cleanup_error}"[:2000]
-            await self._repository.force_update(
+            await self._repository.transition(
                 resource.id,
-                status="error",
+                "processing",
+                "error",
                 provider_file_id=None if not cleanup_error else provider_file_id,
                 vector_store_file_id=None if not cleanup_error else provider_file_id,
                 error_message=message,
@@ -171,6 +180,8 @@ class KnowledgeService:
         resource = await self._repository.get(resource_id)
         if resource is None or resource.status == "deleted":
             return resource is not None
+        if resource.status == "processing":
+            return False
         if resource.status != "deleting":
             if not await self._repository.transition(resource.id, resource.status, "deleting"):
                 return False
@@ -198,7 +209,12 @@ class KnowledgeService:
         """Requeue safe interrupted work or resume known provider attachments."""
         before = datetime.now(UTC) - timedelta(minutes=5)
         resources = await self._repository.list_stale_processing(before, 100)
-        recovered = 0
+        queued = await self._repository.list_queued(100)
+        recovered = len(queued)
+        for resource in queued:
+            task = asyncio.create_task(self.ingest(resource.id))
+            self._recovery_tasks.add(task)
+            task.add_done_callback(self._recovery_tasks.discard)
         for resource in resources:
             if not resource.provider_file_id:
                 await self._repository.force_update(resource.id, status="queued")

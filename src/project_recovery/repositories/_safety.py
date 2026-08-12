@@ -12,13 +12,18 @@ MAX_CONTEXT_DEPTH = 8
 MAX_CONTEXT_BYTES = 16_000
 MAX_INTEGER_BITS = 4_096
 REDACTED = "[REDACTED]"
-_SENSITIVE_KEY = re.compile(r"(api[_-]?key|authorization|cookie|password|secret|token)", re.I)
+_SENSITIVE_KEY = re.compile(
+    r"(api[_-]?key|authorization|cookie|password|secret|session|csrf|token)", re.I
+)
 _SENSITIVE_VALUE = re.compile(
-    r"(?im)(api[_-]?key|authorization|cookie|password|secret|token)(\s*[:=]\s*)[^\r\n,;]+"
+    r"(?im)(api[_-]?key|authorization|cookie|password|secret|session|csrf|token)"
+    r"(\s*[:=]\s*)[^\r\n,;]+"
 )
 _CREDENTIAL_URL = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@[^\s,;]+"
 )
+_BEARER_TOKEN = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{12,}")
+_OPENAI_KEY = re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{16,}\b")
 
 
 def bounded_text(value: str | None, limit: int) -> str | None:
@@ -32,8 +37,10 @@ def redact_text(value: str | None, limit: int) -> str | None:
     """Remove common credential assignments and apply a storage bound."""
     if value is None:
         return None
-    without_urls = _CREDENTIAL_URL.sub(REDACTED, value)
-    return _SENSITIVE_VALUE.sub(r"\1\2" + REDACTED, without_urls)[:limit]
+    redacted = _CREDENTIAL_URL.sub(REDACTED, value)
+    redacted = _SENSITIVE_VALUE.sub(r"\1\2" + REDACTED, redacted)
+    redacted = _BEARER_TOKEN.sub(REDACTED, redacted)
+    return _OPENAI_KEY.sub(REDACTED, redacted)[:limit]
 
 
 def sanitize_metadata(value: Mapping[str, Any] | None) -> dict[str, Any]:

@@ -112,8 +112,8 @@ class FakeChats:
         self.feedback_calls.append(values)
         return SimpleNamespace(id=uuid4(), chainlit_feedback_id=values["feedback_id"])
 
-    async def delete_chainlit_feedback(self, feedback_id: str) -> bool:
-        return feedback_id == "feedback-1"
+    async def delete_chainlit_feedback(self, feedback_id: str, user_id: object) -> bool:
+        return feedback_id == "feedback-1" and user_id == self.conversation.user_id
 
     async def delete_thread(self, conversation_id: object) -> bool:
         return conversation_id == self.conversation.id
@@ -211,6 +211,7 @@ async def test_cross_user_thread_access_is_rejected(tmp_path: Path) -> None:
         ThreadFilter(userId=str(chats.conversation.user_id)),
     )
     assert page.data == []
+    assert await layer.delete_feedback("feedback-1") is False
 
 
 @pytest.mark.asyncio

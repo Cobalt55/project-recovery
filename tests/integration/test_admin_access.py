@@ -190,6 +190,26 @@ def test_anonymous_requests_redirect_to_login_and_health_is_sanitized() -> None:
     assert ready.headers["cache-control"] == "no-store"
 
 
+def test_repeated_login_failures_are_throttled_before_more_password_work() -> None:
+    """The public login boundary limits normalized-account guessing."""
+    client, _, _ = _client()
+
+    for _ in range(5):
+        response = client.post(
+            "/login",
+            data={"email": "missing@example.test", "password": "wrong-password"},
+        )
+        assert response.status_code == 401
+
+    blocked = client.post(
+        "/login",
+        data={"email": " MISSING@example.test ", "password": "wrong-password"},
+    )
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "900"
+    assert "We could not sign you in" in blocked.text
+
+
 def test_member_navigation_and_settings_write_require_csrf() -> None:
     """An admin link leak, missing CSRF check, or skipped settings persistence must fail."""
     client, _, users = _client()

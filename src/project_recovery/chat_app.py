@@ -133,6 +133,21 @@ async def _ensure_conversation() -> Any:
     )
 
 
+async def _revalidated_conversation() -> Any:
+    """Reject stale Chainlit sessions before every stateful chat action."""
+    user_id = _current_user_id()
+    dependencies = get_chat_dependencies()
+    user = await dependencies.users.get(user_id)
+    if user is None or not user.is_active or user.force_password_change:
+        raise PermissionError("authentication is required")
+    conversation = cl.user_session.get("conversation")
+    if conversation is not None:
+        if conversation.user_id != user_id:
+            raise PermissionError("thread is unavailable")
+        return conversation
+    return await _ensure_conversation()
+
+
 async def _send_settings(conversation: Any) -> None:
     current = {
         MODEL_WIDGET_ID: str(conversation.settings.get("model", "gpt-5.6-terra")),
@@ -178,7 +193,7 @@ async def on_settings_update(values: dict[str, Any]) -> None:
     if validated is None:
         await cl.Message(content="Those chat settings are not available.").send()
         return
-    conversation = cl.user_session.get("conversation") or await _ensure_conversation()
+    conversation = await _revalidated_conversation()
     settings = dict(conversation.settings or {})
     settings.update({"model": validated[0], "reasoning_effort": validated[1]})
     updated = await get_chat_dependencies().chats.update_settings(conversation.id, settings)
@@ -191,7 +206,7 @@ async def on_settings_update(values: dict[str, Any]) -> None:
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
     dependencies = get_chat_dependencies()
-    conversation = cl.user_session.get("conversation") or await _ensure_conversation()
+    conversation = await _revalidated_conversation()
     model = cl.user_session.get(MODEL_WIDGET_ID, "gpt-5.6-terra")
     effort = cl.user_session.get(REASONING_WIDGET_ID, "medium")
     validated = validate_chat_settings({MODEL_WIDGET_ID: model, REASONING_WIDGET_ID: effort})

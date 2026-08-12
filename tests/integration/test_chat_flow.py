@@ -144,9 +144,13 @@ async def test_message_callback_streams_runtime_without_duplicate_persistence(
             return SimpleNamespace(final_output="Grounded answer")
 
     runtime = FakeRuntime()
-    users = SimpleNamespace(
-        get=lambda _: None,
-    )
+    class ActiveUsers:
+        async def get(self, candidate: object) -> SimpleNamespace | None:
+            if candidate != user_id:
+                return None
+            return SimpleNamespace(id=user_id, is_active=True, force_password_change=False)
+
+    users = ActiveUsers()
     configure_chat(
         ChatDependencies(
             auth=SimpleNamespace(),
@@ -163,3 +167,49 @@ async def test_message_callback_streams_runtime_without_duplicate_persistence(
 
     assert runtime.calls[0]["persist_messages"] is False
     assert messages[0].content == "Grounded answer\n\nSources: guide.pdf"
+
+
+@pytest.mark.asyncio
+async def test_message_callback_revalidates_cached_user_before_each_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deactivated user cannot continue through an already-open Chainlit session."""
+    user_id = uuid4()
+    conversation = SimpleNamespace(id=uuid4(), user_id=user_id)
+
+    class FakeSession:
+        def get(self, key: str, default: object = None) -> object:
+            return {
+                "user": chat_app.ChainlitUser(identifier=str(user_id)),
+                "conversation": conversation,
+                MODEL_WIDGET_ID: "gpt-5.6-terra",
+                REASONING_WIDGET_ID: "medium",
+            }.get(key, default)
+
+    class InactiveUsers:
+        async def get(self, candidate: object) -> SimpleNamespace | None:
+            assert candidate == user_id
+            return SimpleNamespace(id=user_id, is_active=False, force_password_change=False)
+
+    runtime = SimpleNamespace(calls=[])
+    configure_chat(
+        ChatDependencies(
+            auth=SimpleNamespace(),
+            users=InactiveUsers(),
+            chats=SimpleNamespace(),
+            runtime=runtime,
+            attachment_root=Path("uploads"),
+        )
+    )
+    monkeypatch.setattr(chat_app.cl, "user_session", FakeSession())
+    class UnexpectedMessage:
+        def __init__(self, content: str = "") -> None:
+            self.content = content
+
+        async def update(self) -> None:
+            return None
+
+    monkeypatch.setattr(chat_app.cl, "Message", UnexpectedMessage)
+
+    with pytest.raises(PermissionError, match="authentication"):
+        await chat_app.on_message(SimpleNamespace(content="Question"))

@@ -436,11 +436,14 @@ class ChatRepository(RepositoryBase):
             await session.refresh(feedback)
             return feedback
 
-    async def delete_chainlit_feedback(self, feedback_id: str) -> bool:
-        """Delete one feedback action by its stable Chainlit ID."""
+    async def delete_chainlit_feedback(self, feedback_id: str, user_id: UUID) -> bool:
+        """Delete one feedback action only when it belongs to the current user."""
         async with self._sessions() as session:
             result = await session.execute(
-                delete(ChatFeedback).where(ChatFeedback.chainlit_feedback_id == feedback_id[:255])
+                delete(ChatFeedback).where(
+                    ChatFeedback.chainlit_feedback_id == feedback_id[:255],
+                    ChatFeedback.user_id == user_id,
+                )
             )
             await self._commit(session)
             return bool(getattr(result, "rowcount", 0))
