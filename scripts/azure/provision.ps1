@@ -37,9 +37,14 @@ $postgresSubnetName = "postgres"
 $webAppSubnetName = "webapp"
 $privateDnsZoneName = "$webAppName.private.postgres.database.azure.com"
 
-Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
-    "group", "create", "--name", $ResourceGroup, "--location", $Location, "--output", "none"
-) | Out-Null
+$resourceGroupExists = (Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+    "group", "exists", "--name", $ResourceGroup, "--output", "tsv"
+) | Out-String).Trim()
+if ($resourceGroupExists -ne "true") {
+    Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
+        "group", "create", "--name", $ResourceGroup, "--location", $Location, "--output", "none"
+    ) | Out-Null
+}
 Invoke-ApprovedAzureCli -AzureCli $AzureCli -Arguments @(
     "appservice", "plan", "create", "--resource-group", $ResourceGroup, "--name", $planName,
     "--sku", "B3", "--is-linux", "--output", "none"

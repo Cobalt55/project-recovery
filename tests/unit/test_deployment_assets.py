@@ -96,5 +96,6 @@ def test_deployment_uses_private_postgres_networking_and_packages_web_assets() -
     assert "--private-dns-zone" in provision
     assert "--public-access" not in provision
     assert "vnet-integration" in configure
+    assert '"group", "exists"' in provision
     assert "templates/*.html" in pyproject
     assert "static/*" in pyproject
