@@ -146,7 +146,10 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         if application_services.knowledge is not None:
-            await application_services.knowledge.recover_stale()
+            try:
+                await application_services.knowledge.recover_stale()
+            except Exception:
+                LOGGER.error("Knowledge startup recovery could not complete.")
         yield
         await application_services.database.close()
 
