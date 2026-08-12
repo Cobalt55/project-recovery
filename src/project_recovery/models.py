@@ -107,6 +107,9 @@ class Message(UUIDRecord, Base):
     conversation_id: Mapped[UUID] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
+    chainlit_step_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
     role: Mapped[str] = mapped_column(String(16))
     content: Mapped[str] = mapped_column(String(50000))
     provider_response_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
@@ -128,6 +131,9 @@ class MessageAttachment(UUIDRecord, Base):
     )
     message_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    chainlit_element_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
     )
     filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str] = mapped_column(String(127))
@@ -219,6 +225,9 @@ class ChatFeedback(UUIDRecord, Base):
     )
     message_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    chainlit_feedback_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
     )
     rating: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str | None] = mapped_column(String(2000), nullable=True)

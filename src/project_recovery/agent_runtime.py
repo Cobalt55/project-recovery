@@ -55,17 +55,68 @@ class PromptRunLike(Protocol):
 
 
 class ChatRepositoryLike(Protocol):
-    async def create_thread(self, **kwargs: object) -> ConversationLike: ...
+    async def create_thread(
+        self,
+        user_id: UUID,
+        chainlit_thread_id: str,
+        openai_conversation_id: str,
+        settings: dict[str, object],
+    ) -> ConversationLike: ...
 
-    async def append_message(self, **kwargs: object) -> object: ...
+    async def append_message(
+        self,
+        conversation_id: UUID,
+        role: str,
+        content: str,
+        provider_response_id: str | None,
+    ) -> object: ...
 
 
 class TelemetryRepositoryLike(Protocol):
-    async def start_prompt_run(self, **kwargs: object) -> PromptRunLike: ...
+    async def start_prompt_run(
+        self,
+        *,
+        user_id: UUID | None,
+        conversation_id: UUID,
+        trace_id: str,
+        model: str,
+        requested_reasoning_effort: str,
+        effective_reasoning_effort: str,
+        prompt: str,
+        metadata: dict[str, object] | None = None,
+    ) -> PromptRunLike: ...
 
-    async def finish_prompt_run(self, prompt_run_id: UUID, **kwargs: object) -> object | None: ...
+    async def finish_prompt_run(
+        self,
+        prompt_run_id: UUID,
+        *,
+        status: str,
+        latency_ms: int | None,
+        input_tokens: int | None,
+        cached_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None,
+        estimated_cost: Decimal | str | None,
+        provider_response_id: str | None = None,
+        error_message: str | None = None,
+    ) -> object | None: ...
 
-    async def record_tool_run(self, **kwargs: object) -> object: ...
+    async def record_tool_run(
+        self,
+        *,
+        user_id: UUID | None,
+        conversation_id: UUID,
+        prompt_run_id: UUID | None,
+        trace_id: str,
+        tool_name: str,
+        tool_type: str,
+        status: str,
+        duration_ms: int | None,
+        result_count: int | None,
+        result_summary: str | None,
+        arguments: dict[str, object] | None,
+        output: dict[str, object] | None,
+    ) -> object: ...
 
 
 class SpanLike(Protocol):
@@ -144,19 +195,30 @@ class AgentRuntime:
 
         selected_model, selected_effort = self._policy(model, reasoning_effort)
         provider_conversation = await self._client.conversations.create(items=[])
-        with self._span(
-            "application_persistence",
-            data={"operation": "create_conversation"},
-        ):
-            return await self._chats.create_thread(
-                user_id=user_id,
-                chainlit_thread_id=chainlit_thread_id,
-                openai_conversation_id=provider_conversation.id,
-                settings={
-                    "model": selected_model,
-                    "reasoning_effort": selected_effort,
-                },
-            )
+        try:
+            with self._span(
+                "application_persistence",
+                data={"operation": "create_conversation"},
+            ):
+                return await self._chats.create_thread(
+                    user_id=user_id,
+                    chainlit_thread_id=chainlit_thread_id,
+                    openai_conversation_id=provider_conversation.id,
+                    settings={
+                        "model": selected_model,
+                        "reasoning_effort": selected_effort,
+                    },
+                )
+        except Exception:
+            try:
+                await self._client.conversations.delete(provider_conversation.id)
+            except Exception:
+                pass
+            raise
+
+    async def delete_conversation(self, provider_conversation_id: str) -> None:
+        """Delete application-owned provider state for a user-deleted thread."""
+        await self._client.conversations.delete(provider_conversation_id)
 
     async def stream_turn(
         self,
@@ -167,6 +229,7 @@ class AgentRuntime:
         model: ModelId | None = None,
         reasoning_effort: ReasoningEffort | None = None,
         emit: EmitCallback | None = None,
+        persist_messages: bool = True,
     ) -> RunSummary:
         """Stream one turn through a durable OpenAI Conversation."""
 
@@ -228,17 +291,18 @@ class AgentRuntime:
             # not become the caller's current context. Parent application
             # spans explicitly to the returned SDK trace.
             trace_parent = getattr(result, "trace", None)
-            with self._span(
-                "application_persistence",
-                data={"operation": "persist_user_message"},
-                parent=trace_parent,
-            ):
-                await self._chats.append_message(
-                    conversation_id=conversation.id,
-                    role="user",
-                    content=prompt,
-                    provider_response_id=None,
-                )
+            if persist_messages:
+                with self._span(
+                    "application_persistence",
+                    data={"operation": "persist_user_message"},
+                    parent=trace_parent,
+                ):
+                    await self._chats.append_message(
+                        conversation_id=conversation.id,
+                        role="user",
+                        content=prompt,
+                        provider_response_id=None,
+                    )
             async for event in result.stream_events():
                 normalized = await self._normalize_event(
                     event=event,
@@ -268,17 +332,18 @@ class AgentRuntime:
             )
             final_output = str(result.final_output or "")
             provider_response_id = cast(str | None, getattr(result, "last_response_id", None))
-            with self._span(
-                "application_persistence",
-                data={"operation": "persist_assistant_message"},
-                parent=trace_parent,
-            ):
-                await self._chats.append_message(
-                    conversation_id=conversation.id,
-                    role="assistant",
-                    content=final_output,
-                    provider_response_id=provider_response_id,
-                )
+            if persist_messages:
+                with self._span(
+                    "application_persistence",
+                    data={"operation": "persist_assistant_message"},
+                    parent=trace_parent,
+                ):
+                    await self._chats.append_message(
+                        conversation_id=conversation.id,
+                        role="assistant",
+                        content=final_output,
+                        provider_response_id=provider_response_id,
+                    )
             await self._safe_finish(
                 prompt_run.id,
                 status="completed",
@@ -383,13 +448,45 @@ class AgentRuntime:
                     "tool_name": "file_search",
                     "status": str(getattr(raw_item, "status", "completed")),
                     "result_count": len(results),
+                    "files": [
+                        {
+                            "file_id": result["file_id"],
+                            "filename": result["filename"],
+                            "score": result["score"],
+                        }
+                        for result in results
+                    ],
                 },
             )
         ]
 
-    async def _safe_finish(self, prompt_run_id: UUID, **kwargs: object) -> None:
+    async def _safe_finish(
+        self,
+        prompt_run_id: UUID,
+        *,
+        status: str,
+        latency_ms: int | None,
+        input_tokens: int | None,
+        cached_tokens: int | None,
+        output_tokens: int | None,
+        total_tokens: int | None,
+        estimated_cost: Decimal | str | None,
+        provider_response_id: str | None,
+        error_message: str | None,
+    ) -> None:
         try:
-            await self._telemetry.finish_prompt_run(prompt_run_id, **kwargs)
+            await self._telemetry.finish_prompt_run(
+                prompt_run_id,
+                status=status,
+                latency_ms=latency_ms,
+                input_tokens=input_tokens,
+                cached_tokens=cached_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                estimated_cost=estimated_cost,
+                provider_response_id=provider_response_id,
+                error_message=error_message,
+            )
         except Exception:
             # A telemetry outage must not discard a successful provider response.
             return

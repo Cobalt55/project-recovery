@@ -29,10 +29,14 @@ def _settings() -> Settings:
 class FakeConversations:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
+        self.deleted: list[str] = []
 
     async def create(self, **kwargs: object) -> SimpleNamespace:
         self.calls.append(kwargs)
         return SimpleNamespace(id="conv_provider_123")
+
+    async def delete(self, conversation_id: str) -> None:
+        self.deleted.append(conversation_id)
 
 
 class FakeOpenAI:
@@ -53,6 +57,12 @@ class FakeChatRepository:
     async def append_message(self, **kwargs: object) -> SimpleNamespace:
         self.messages.append(kwargs)
         return SimpleNamespace(id=uuid4(), **kwargs)
+
+
+class FailingChatRepository(FakeChatRepository):
+    async def create_thread(self, **kwargs: object) -> SimpleNamespace:
+        del kwargs
+        raise RuntimeError("database unavailable")
 
 
 class FakeTelemetryRepository:
@@ -196,6 +206,28 @@ async def test_start_conversation_uses_provider_conversation_and_persists_id() -
     }
     assert conversation.id == chats.thread_id
 
+    await runtime.delete_conversation("conv_provider_123")
+    assert client.conversations.deleted == ["conv_provider_123"]
+
+
+@pytest.mark.asyncio
+async def test_start_conversation_cleans_up_provider_state_when_persistence_fails() -> None:
+    client = FakeOpenAI()
+    runtime = AgentRuntime(
+        settings=_settings(),
+        chat_repository=FailingChatRepository(),
+        telemetry_repository=FakeTelemetryRepository(),
+        openai_client=client,
+    )
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await runtime.start_conversation(
+            user_id=uuid4(),
+            chainlit_thread_id="thread-failure",
+        )
+
+    assert client.conversations.deleted == ["conv_provider_123"]
+
 
 @pytest.mark.asyncio
 async def test_stream_turn_configures_agent_trace_session_usage_and_file_search() -> None:
@@ -269,6 +301,14 @@ async def test_stream_turn_configures_agent_trace_session_usage_and_file_search(
     assert telemetry.tools[0]["tool_name"] == "file_search"
     assert telemetry.tools[0]["result_count"] == 1
     assert telemetry.tools[0]["arguments"] == {"queries": ["retention policy"]}
+    assert [event.data for event in emitted if event.kind == "tool"] == [
+        {
+            "tool_name": "file_search",
+            "status": "completed",
+            "result_count": 1,
+            "files": [{"file_id": "file_1", "filename": "guide.pdf", "score": 0.91}],
+        }
+    ]
     assert telemetry.finished[-1][1]["status"] == "completed"
     assert {message["role"] for message in chats.messages} == {"user", "assistant"}
     assert spans.names == [

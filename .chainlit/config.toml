@@ -1,0 +1,23 @@
+[project]
+user_session_timeout = 43200
+
+[features.spontaneous_file_upload]
+enabled = true
+accept = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "text/plain",
+  "text/markdown",
+]
+max_files = 5
+max_size_mb = 25
+
+[UI]
+name = "Project Recovery"
+default_theme = "light"
+custom_css = "/public/chat-navigation.css"
+custom_js = "/public/chat-navigation.js"
+custom_js_attributes = "defer"
+
+[meta]
+generated_by = "2.11.1"

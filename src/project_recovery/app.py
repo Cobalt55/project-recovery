@@ -1,6 +1,7 @@
 """FastAPI application factory for the authenticated workspace shell."""
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,27 +18,49 @@ from project_recovery.admin.logins import login_status
 from project_recovery.admin.settings import validated_settings
 from project_recovery.admin.shell import AppServices, navigation_items
 from project_recovery.admin.users import UserManagementService
+from project_recovery.agent_runtime import AgentRuntime
 from project_recovery.auth.passwords import PasswordService
 from project_recovery.auth.sessions import AuthService, CurrentUser
+from project_recovery.chat_state import ChatDependencies, configure_chat
 from project_recovery.config import (
     Settings,
     get_settings,
 )
 from project_recovery.db import Database
+from project_recovery.repositories.chat import ChatRepository
+from project_recovery.repositories.telemetry import TelemetryRepository
+from project_recovery.repositories.users import UserRepository
 
 LOGGER = logging.getLogger(__name__)
 PACKAGE_ROOT = Path(__file__).parent
 SESSION_COOKIE = "project_recovery_session"
 CSRF_COOKIE = "project_recovery_csrf"
+CHAINLIT_COOKIE_PREFIX = "access_token"
 
 
 def _services(settings: Settings) -> AppServices:
     database = Database(settings.database_url)
     passwords = PasswordService()
+    sessions = database.session()
+    auth = AuthService(sessions, passwords)
+    users = UserRepository(sessions)
+    chats = ChatRepository(sessions)
+    telemetry = TelemetryRepository(sessions)
     return AppServices(
         database=database,
-        auth=AuthService(database.session(), passwords),
+        auth=auth,
         users=UserManagementService(database, passwords),
+        chat=ChatDependencies(
+            auth=auth,
+            users=users,
+            chats=chats,
+            runtime=AgentRuntime(
+                settings=settings,
+                chat_repository=chats,
+                telemetry_repository=telemetry,
+            ),
+            attachment_root=Path(settings.attachment_storage_path),
+        ),
     )
 
 
@@ -83,8 +106,17 @@ def _set_login_cookies(
     )
 
 
+def _clear_login_cookies(response: Response, request: Request) -> None:
+    """Clear application and mounted-Chainlit credentials together."""
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(CSRF_COOKIE, path="/")
+    for name in request.cookies:
+        if name == CHAINLIT_COOKIE_PREFIX or name.startswith(f"{CHAINLIT_COOKIE_PREFIX}_"):
+            response.delete_cookie(name, path="/")
+
+
 def create_app(settings: Settings | None = None, services: AppServices | None = None) -> FastAPI:
-    """Build the production-safe web application without mounting the chat runtime yet."""
+    """Build the production-safe workspace and its authenticated chat."""
     configured = settings or get_settings()
     application_services = services or _services(configured)
     templates = Jinja2Templates(directory=str(PACKAGE_ROOT / "templates"))
@@ -133,6 +165,20 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     async def root() -> RedirectResponse:
         return _redirect("/chat")
 
+    @app.get("/api/navigation")
+    async def navigation(request: Request) -> Response:
+        current = await _current_user(request, application_services)
+        if not isinstance(current, CurrentUser):
+            return JSONResponse({"items": []}, status_code=401)
+        return JSONResponse(
+            {
+                "items": [
+                    {"label": item.label, "href": item.href}
+                    for item in navigation_items(current, request.url.path)
+                ]
+            }
+        )
+
     @app.get("/login", response_class=HTMLResponse)
     async def login_form(request: Request) -> Response:
         current = await _current_user(request, application_services)
@@ -167,8 +213,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             return Response(status_code=403)
         await application_services.auth.logout(request.cookies.get(SESSION_COOKIE, ""))
         response = _redirect("/login")
-        response.delete_cookie(SESSION_COOKIE, path="/")
-        response.delete_cookie(CSRF_COOKIE, path="/")
+        _clear_login_cookies(response, request)
         return response
 
     @app.get("/password/change", response_class=HTMLResponse)
@@ -199,8 +244,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
         ):
             return Response("Unable to update your password.", status_code=400)
         response = _redirect("/login")
-        response.delete_cookie(SESSION_COOKIE, path="/")
-        response.delete_cookie(CSRF_COOKIE, path="/")
+        _clear_login_cookies(response, request)
         return response
 
     @app.get("/settings", response_class=HTMLResponse)
@@ -373,6 +417,17 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             return Response(status_code=403)
         await application_services.users.revoke_login(current.user_id, login_id)
         return _redirect("/admin/logins")
+
+    if application_services.chat is not None:
+        from chainlit.utils import mount_chainlit
+
+        configure_chat(application_services.chat)
+        os.environ["CHAINLIT_AUTH_SECRET"] = configured.chainlit_auth_secret.get_secret_value()
+        mount_chainlit(
+            app=app,
+            target=str(PACKAGE_ROOT / "chat_app.py"),
+            path="/chat",
+        )
 
     return app
 

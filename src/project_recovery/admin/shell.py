@@ -1,7 +1,7 @@
 """Shared application-shell contracts and role-filtered navigation."""
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from project_recovery.auth.sessions import AuthService, CurrentUser
@@ -67,3 +67,4 @@ class AppServices:
     database: DatabaseBoundary
     auth: AuthService
     users: UserAdminBoundary
+    chat: Any | None = None

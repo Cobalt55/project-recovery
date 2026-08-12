@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     default_reasoning_effort: ReasoningEffort = "medium"
     tracing_enabled: bool = True
     trace_include_sensitive_data: bool = False
+    attachment_storage_path: str = "uploads"
     trusted_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "testserver")
 
 

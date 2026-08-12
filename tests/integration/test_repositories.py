@@ -310,3 +310,62 @@ async def test_chat_rejects_children_from_another_conversation(database: Databas
             None,
             None,
         )
+
+
+@pytest.mark.asyncio
+async def test_chainlit_records_upsert_by_stable_ui_identifiers(database: Database):
+    """Streaming updates never duplicate steps, elements, or feedback."""
+    users = UserRepository(database.session())
+    chats = ChatRepository(database.session())
+    user = await users.create(
+        email="chainlit@example.test",
+        display_name="Chainlit",
+        password_hash="hash",
+        roles=["user"],
+        force_password_change=False,
+    )
+    conversation = await chats.create_thread(
+        user.id, "chainlit-thread", "provider-conversation", {}
+    )
+
+    first = await chats.upsert_chainlit_message(
+        conversation_id=conversation.id,
+        step_id="step-1",
+        role="assistant",
+        content="Streaming",
+    )
+    updated = await chats.upsert_chainlit_message(
+        conversation_id=conversation.id,
+        step_id="step-1",
+        role="assistant",
+        content="Streaming complete",
+    )
+    attachment = await chats.upsert_chainlit_attachment(
+        conversation_id=conversation.id,
+        message_id=updated.id,
+        element_id="element-1",
+        filename="note.txt",
+        content_type="text/plain",
+        byte_size=4,
+        metadata={"path": "owned/path"},
+    )
+    feedback = await chats.upsert_chainlit_feedback(
+        feedback_id="feedback-1",
+        user_id=user.id,
+        conversation_id=conversation.id,
+        message_id=updated.id,
+        rating=1,
+        comment="Useful",
+        context_snapshot={},
+        model="gpt-5.6-terra",
+        trace_id=None,
+        tool_summary=None,
+    )
+
+    assert updated.id == first.id
+    assert (await chats.get_message_by_chainlit_id("step-1")).content == "Streaming complete"
+    assert (
+        await chats.get_attachment_by_chainlit_id(conversation.id, "element-1")
+    ).id == attachment.id
+    assert feedback.chainlit_feedback_id == "feedback-1"
+    assert await chats.delete_chainlit_feedback("feedback-1") is True
