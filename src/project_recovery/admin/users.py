@@ -6,7 +6,7 @@ from uuid import UUID
 
 from project_recovery.auth.passwords import MIN_REPLACEMENT_PASSWORD_LENGTH, PasswordService
 from project_recovery.db import Database
-from project_recovery.models import User
+from project_recovery.models import LoginSessionListRow, User
 from project_recovery.repositories.users import UserRepository
 
 TEMPORARY_PASSWORD_BYTES = 24
@@ -35,7 +35,7 @@ class UserManagementService:
 
     async def list_logins(
         self, offset: int, limit: int, query: str | None = None, status: str | None = None
-    ) -> object:
+    ) -> Sequence[LoginSessionListRow]:
         return await UserRepository(self._database.session()).list_logins(
             offset, limit, query, status
         )

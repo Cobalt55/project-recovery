@@ -1,10 +1,12 @@
 """Shared application-shell contracts and role-filtered navigation."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from project_recovery.auth.sessions import AuthService, CurrentUser
+from project_recovery.models import LoginSessionListRow
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +66,7 @@ class UserAdminBoundary(Protocol):
 
     async def list_logins(
         self, offset: int, limit: int, query: str | None = None, status: str | None = None
-    ) -> object: ...
+    ) -> Sequence[LoginSessionListRow]: ...
 
     async def create_user(
         self, actor_id: UUID, email: str, display_name: str, roles: list[str]

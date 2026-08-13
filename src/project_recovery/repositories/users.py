@@ -7,7 +7,14 @@ from sqlalchemy import Select, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from project_recovery.models import AppSetting, LoginSession, User, UserManagementEvent, utc_now
+from project_recovery.models import (
+    AppSetting,
+    LoginSession,
+    LoginSessionListRow,
+    User,
+    UserManagementEvent,
+    utc_now,
+)
 from project_recovery.repositories._safety import page_limit, page_offset, sanitize_metadata
 from project_recovery.repositories._session import RepositoryBase
 
@@ -158,7 +165,7 @@ class UserRepository(RepositoryBase):
 
     async def list_logins(
         self, offset: int, limit: int, query: str | None = None, status: str | None = None
-    ) -> Sequence[object]:
+    ) -> Sequence[LoginSessionListRow]:
         """List bounded, secret-free session columns for the login history page."""
         if limit < 1:
             raise ValueError("limit must be positive")

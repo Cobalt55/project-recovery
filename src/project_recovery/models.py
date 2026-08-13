@@ -19,12 +19,18 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.engine import Row
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 def utc_now() -> datetime:
     """Return an aware UTC timestamp for application-owned defaults."""
     return datetime.now(UTC)
+
+
+LoginSessionListRow = Row[
+    tuple[UUID, UUID, str, bool, datetime, datetime, datetime, datetime | None]
+]
 
 
 class Base(DeclarativeBase):
