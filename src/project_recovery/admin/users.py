@@ -33,8 +33,12 @@ class UserManagementService:
             query, status, offset, limit
         )
 
-    async def list_logins(self, offset: int, limit: int) -> object:
-        return await UserRepository(self._database.session()).list_logins(offset, limit)
+    async def list_logins(
+        self, offset: int, limit: int, query: str | None = None, status: str | None = None
+    ) -> object:
+        return await UserRepository(self._database.session()).list_logins(
+            offset, limit, query, status
+        )
 
     async def create_user(
         self, actor_id: UUID, email: str, display_name: str, roles: list[str]

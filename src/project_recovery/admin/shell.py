@@ -62,7 +62,9 @@ class UserAdminBoundary(Protocol):
         self, query: str | None, status: str | None, offset: int, limit: int
     ) -> object: ...
 
-    async def list_logins(self, offset: int, limit: int) -> object: ...
+    async def list_logins(
+        self, offset: int, limit: int, query: str | None = None, status: str | None = None
+    ) -> object: ...
 
     async def create_user(
         self, actor_id: UUID, email: str, display_name: str, roles: list[str]

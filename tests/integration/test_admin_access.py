@@ -108,8 +108,32 @@ class FakeUsers:
     async def list_page(self, query: str | None, status: str | None, offset: int, limit: int):
         return self.rows[offset : offset + min(limit, 100)]
 
-    async def list_logins(self, offset: int, limit: int):
-        return self.login_rows[offset : offset + min(limit, 100)]
+    async def list_logins(
+        self,
+        offset: int,
+        limit: int,
+        query: str | None = None,
+        status: str | None = None,
+    ):
+        rows = self.login_rows
+        if query:
+            normalized = query.strip().casefold()
+            rows = [row for row in rows if normalized in row.email.casefold()]
+        now = datetime.now(UTC)
+        if status == "active":
+            rows = [
+                row
+                for row in rows
+                if row.is_active and row.revoked_at is None and row.expires_at > now
+            ]
+        elif status == "revoked":
+            rows = [row for row in rows if row.revoked_at is not None]
+        elif status == "expired":
+            rows = [
+                row for row in rows if row.revoked_at is None and row.expires_at <= now
+            ]
+        self.login_list_call = (offset, limit, query, status)
+        return rows[offset : offset + limit]
 
     async def create_user(
         self, actor_id: UUID, email: str, display_name: str, roles: list[str]
@@ -343,6 +367,76 @@ def test_admin_user_actions_and_login_table_keep_secrets_out_of_html() -> None:
     assert users.rows[1].is_active is False
 
 
+def test_logins_page_uses_allowed_page_sizes_and_retains_active_search_filters() -> None:
+    """Dropping the lookahead or filters would strand an administrator on a partial page."""
+    client, _, users = _client()
+    _login(client, "admin@example.test")
+    now = datetime.now(UTC)
+    users.login_rows = [
+        SimpleNamespace(
+            id=uuid4(),
+            user_id=users.member_id,
+            email=f"member-{index}@example.test",
+            is_active=True,
+            created_at=now,
+            last_seen_at=now,
+            expires_at=now + timedelta(hours=12),
+            revoked_at=None,
+        )
+        for index in range(126)
+    ]
+
+    page = client.get("/admin/logins?offset=25&limit=999&query=member&status=active")
+
+    assert page.status_code == 200
+    assert users.login_list_call == (25, 101, "member", "active")
+    assert (
+        'href="/admin/logins?offset=0&amp;limit=100&amp;query=member&amp;status=active"'
+        in page.text
+    )
+    assert (
+        'href="/admin/logins?offset=125&amp;limit=100&amp;query=member&amp;status=active"'
+        in page.text
+    )
+
+
+def test_logins_page_renders_secret_free_desktop_and_mobile_session_views() -> None:
+    """A flattened session view can leak bearer values or hide needed audit detail."""
+    client, _, users = _client()
+    _login(client, "admin@example.test")
+    signed_in = datetime(2026, 8, 13, 14, 30, tzinfo=UTC)
+    users.login_rows[0] = SimpleNamespace(
+        id=users.login_id,
+        user_id=users.member_id,
+        email="member@example.test",
+        is_active=True,
+        created_at=signed_in,
+        last_seen_at=signed_in + timedelta(minutes=5),
+        expires_at=signed_in + timedelta(hours=12),
+        revoked_at=None,
+        token_hash="session-member",
+        csrf_token_hash="csrf_token_hash",
+        cookie_value="project_recovery_session=do-not-render",
+    )
+
+    page = client.get("/admin/logins")
+
+    assert page.status_code == 200
+    assert '<div class="session-list"' in page.text
+    assert '<table class="session-table"' in page.text
+    assert all(
+        f"<th>{column}</th>" in page.text
+        for column in ["User", "Status", "Signed in", "Last active", "Expires"]
+    )
+    assert '<details>' in page.text
+    assert str(users.login_id) in page.text
+    assert 'datetime="2026-08-13T14:30:00+00:00"' in page.text
+    assert 'data-confirm="Revoke this session?"' in page.text
+    assert "session-member" not in page.text
+    assert "csrf_token_hash" not in page.text
+    assert "project_recovery_session=do-not-render" not in page.text
+
+
 def test_admin_can_edit_roles_and_revoke_one_active_login_with_csrf() -> None:
     """A missing role control, CSRF gate, or targeted-login revocation must change this result."""
     client, _, users = _client()
@@ -367,6 +461,7 @@ def test_admin_can_edit_roles_and_revoke_one_active_login_with_csrf() -> None:
     assert users.rows[1].roles == ["admin", "user"]
     assert ("roles_changed", users.member_id, {"roles": "admin,user"}) in users.audit_events
     assert f'action="/admin/logins/{users.login_id}/revoke"' in logins_page.text
+    assert 'data-confirm="Revoke this session?"' in logins_page.text
     assert csrf_failure.status_code == 403
     assert revoked.status_code == 303
     assert users.login_rows[0].revoked_at is not None

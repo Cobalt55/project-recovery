@@ -156,8 +156,12 @@ class UserRepository(RepositoryBase):
             await self._commit(session)
             return dict(result or {})
 
-    async def list_logins(self, offset: int, limit: int) -> Sequence[object]:
+    async def list_logins(
+        self, offset: int, limit: int, query: str | None = None, status: str | None = None
+    ) -> Sequence[object]:
         """List bounded, secret-free session columns for the login history page."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
         statement = (
             select(
                 LoginSession.id,
@@ -170,9 +174,26 @@ class UserRepository(RepositoryBase):
                 LoginSession.revoked_at,
             )
             .join(User, LoginSession.user_id == User.id)
-            .order_by(LoginSession.created_at.desc())
+        )
+        normalized_query = (query or "").strip().casefold()[:320]
+        if normalized_query:
+            statement = statement.where(User.email.ilike(f"%{normalized_query}%"))
+        if status == "active":
+            statement = statement.where(
+                User.is_active.is_(True),
+                LoginSession.revoked_at.is_(None),
+                LoginSession.expires_at > utc_now(),
+            )
+        elif status == "revoked":
+            statement = statement.where(LoginSession.revoked_at.is_not(None))
+        elif status == "expired":
+            statement = statement.where(
+                LoginSession.revoked_at.is_(None), LoginSession.expires_at <= utc_now()
+            )
+        statement = (
+            statement.order_by(LoginSession.created_at.desc())
             .offset(page_offset(offset))
-            .limit(page_limit(limit))
+            .limit(min(limit, 101))
         )
         async with self._sessions() as session:
             return (await session.execute(statement)).all()

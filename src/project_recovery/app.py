@@ -480,17 +480,40 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
         )
 
     @app.get("/admin/logins", response_class=HTMLResponse)
-    async def logins_page(request: Request, offset: int = 0, limit: int = 25) -> Response:
+    async def logins_page(
+        request: Request,
+        offset: int = 0,
+        limit: int = 25,
+        query: str | None = None,
+        status: str = "all",
+    ) -> Response:
         current = await admin(request)
         if not isinstance(current, CurrentUser):
             return current
-        logins = await application_services.users.list_logins(
-            max(offset, 0), min(max(limit, 1), 100)
+        page_size = 100 if limit >= 100 else 50 if limit >= 50 else 25
+        page_offset = max(offset, 0)
+        selected_status = status if status in {"active", "revoked", "expired", "all"} else "all"
+        selected_query = (query or "").strip()
+        records = list(
+            await application_services.users.list_logins(
+                page_offset, page_size + 1, selected_query or None, selected_status
+            )
         )
         return templates.TemplateResponse(
             request,
             "logins.html",
-            _page_context(request, current, logins=logins, login_status=login_status),
+            _page_context(
+                request,
+                current,
+                logins=records[:page_size],
+                login_status=login_status,
+                offset=page_offset,
+                limit=page_size,
+                query=selected_query,
+                status=selected_status,
+                has_next=len(records) > page_size,
+                previous_offset=max(page_offset - page_size, 0) if page_offset else None,
+            ),
         )
 
     @app.post("/admin/logins/{login_id}/revoke")

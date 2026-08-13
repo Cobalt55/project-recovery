@@ -3,6 +3,13 @@
 document.documentElement.classList.add("js-ready");
 
 (() => {
+  document.addEventListener("submit", (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const message = form.dataset.confirm;
+    if (message && !window.confirm(message)) event.preventDefault();
+  });
+
   const opener = document.querySelector("[data-drawer-open]");
   const drawer = document.querySelector("[data-drawer]");
   const backdrop = document.querySelector("[data-drawer-backdrop]");

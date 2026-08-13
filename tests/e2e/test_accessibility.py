@@ -1,11 +1,15 @@
 """Static accessibility and generic-product contract checks for rendered pages."""
 
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
-from jinja2 import Environment
+from jinja2 import Environment, FileSystemLoader
+
+from project_recovery.admin.logins import login_status
 
 playwright = pytest.importorskip("playwright.sync_api")
 Page = playwright.Page
@@ -41,6 +45,36 @@ def _render_workspace_shell() -> str:
     )
 
 
+def _render_logins_page() -> str:
+    """Render the real session view with controlled safe projection values."""
+    now = datetime(2026, 8, 13, 14, 30, tzinfo=UTC)
+    return Environment(loader=FileSystemLoader(TEMPLATES), autoescape=True).get_template(
+        "logins.html"
+    ).render(
+        user=SimpleNamespace(email="admin@example.test", force_password_change=False),
+        csrf_token="test-csrf",
+        navigation=[],
+        logins=[
+            SimpleNamespace(
+                id=uuid4(),
+                email="member@example.test",
+                is_active=True,
+                created_at=now,
+                last_seen_at=now + timedelta(minutes=5),
+                expires_at=now + timedelta(hours=12),
+                revoked_at=None,
+            )
+        ],
+        login_status=login_status,
+        offset=0,
+        limit=25,
+        query="",
+        status="all",
+        has_next=False,
+        previous_offset=None,
+    )
+
+
 @pytest.fixture
 def workspace_page() -> Page:
     """Exercise the shipped shell assets in Chromium without adding test-only frontend code."""
@@ -48,6 +82,19 @@ def workspace_page() -> Page:
         browser = browser_driver.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 390, "height": 720})
         page.set_content(_render_workspace_shell())
+        page.add_style_tag(content=(STATIC / "app.css").read_text(encoding="utf-8"))
+        page.add_script_tag(content=(STATIC / "app.js").read_text(encoding="utf-8"))
+        yield page
+        browser.close()
+
+
+@pytest.fixture
+def logins_page() -> Page:
+    """Load the rendered login session page with its shipped responsive assets."""
+    with sync_playwright() as browser_driver:
+        browser = browser_driver.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1024, "height": 720})
+        page.set_content(_render_logins_page())
         page.add_style_tag(content=(STATIC / "app.css").read_text(encoding="utf-8"))
         page.add_script_tag(content=(STATIC / "app.js").read_text(encoding="utf-8"))
         yield page
@@ -129,6 +176,36 @@ def test_workspace_drawer_handles_keyboard_and_backdrop(workspace_page: Page) ->
     assert drawer.is_hidden()
     assert opener.evaluate("element => document.activeElement === element")
 
+
+def test_login_sessions_switch_to_stacked_rows_on_mobile_without_overflow(
+    logins_page: Page,
+) -> None:
+    """Leaving the desktop table visible on phones makes session administration unusable."""
+    assert logins_page.locator(".session-table").is_visible()
+    assert logins_page.locator(".session-list").is_hidden()
+
+    logins_page.set_viewport_size({"width": 390, "height": 720})
+
+    assert logins_page.locator(".session-table").is_hidden()
+    assert logins_page.locator(".session-list").is_visible()
+    assert logins_page.evaluate(
+        "document.documentElement.scrollWidth <= document.documentElement.clientWidth"
+    )
+
+
+def test_login_revoke_prompts_for_confirmation(logins_page: Page) -> None:
+    """A direct revoke submission can invalidate a live session without deliberate confirmation."""
+    confirmations: list[str] = []
+
+    def dismiss(dialog: object) -> None:
+        confirmations.append(dialog.message)
+        dialog.dismiss()
+
+    logins_page.once("dialog", dismiss)
+    logins_page.get_by_text("Session details").first.click()
+    logins_page.get_by_role("button", name="Revoke").click()
+
+    assert confirmations == ["Revoke this session?"]
 
 def test_login_and_settings_forms_have_explicit_labels_and_autocomplete() -> None:
     """Credential forms expose their purpose to keyboard and assistive-technology users."""
