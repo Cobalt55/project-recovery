@@ -245,6 +245,24 @@ def test_clean_runner_install_includes_the_build_frontend() -> None:
     assert any(re.match(r"^build(?:[<>=!~].*)?$", dependency) for dependency in dev_dependencies)
 
 
+def test_workflows_install_declared_browser_tests_before_running_pytest() -> None:
+    """A clean CI runner must install Chromium before browser tests can be skipped."""
+
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
+
+    assert any(
+        re.match(r"^playwright(?:[<>=!~].*)?$", dependency) for dependency in dev_dependencies
+    )
+    for workflow_name in ("test.yml", "deploy.yml"):
+        commands = _workflow_run_commands(ROOT / ".github" / "workflows" / workflow_name)
+        dependencies_index = commands.index('python -m pip install -e ".[dev]"')
+        chromium_index = commands.index("python -m playwright install --with-deps chromium")
+        pytest_index = commands.index("pytest -q")
+
+        assert dependencies_index < chromium_index < pytest_index
+
+
 def test_deployment_uses_private_postgres_networking_and_packages_web_assets() -> None:
     """Production cannot depend on a public database or omit templates from its wheel."""
     provision = (ROOT / "scripts" / "azure" / "provision.ps1").read_text(encoding="utf-8")
