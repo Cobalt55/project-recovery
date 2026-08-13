@@ -283,8 +283,8 @@ def test_chainlit_shim_covers_native_controls_and_reduces_history_to_one_tab_sto
     assert "role=dialog" in navigation
     assert "aria-describedby" in navigation
     assert "data-pr-submitting" in navigation
-    assert "data-pr-drawer-open" in navigation
-    assert "data-pr-drawer-close" in navigation
+    assert "project-recovery-settings-link" in navigation
+    assert '"Settings"' in navigation
 
 
 def test_chainlit_workspace_shim_targets_current_native_icon_control_ids() -> None:
@@ -313,7 +313,11 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
     <button id="upload-button"></button>
     <button id="chat-submit"></button>
     <button id="stop-button"></button>
-    <button data-testid="user-menu"></button>
+    <button id="theme-toggle" style="position:fixed;right:60px;top:8px;width:44px;height:44px">
+      Theme
+    </button>
+    <button data-testid="user-menu"
+      style="position:fixed;right:8px;top:8px;width:44px;height:44px">Account</button>
     <a href="/thread/duplicate" aria-label="Thread duplicate">
       <button aria-label="Thread duplicate">Open</button>
     </a>
@@ -328,15 +332,6 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
         page = browser.new_page(viewport={"width": 390, "height": 720})
         page.set_content(markup)
         page.add_style_tag(content=stylesheet)
-        page.evaluate(
-            """window.fetch = async () => ({
-                ok: true,
-                json: async () => ({ items: [
-                    { label: 'Chat', href: '/chat', active: true },
-                    { label: 'Settings', href: '/settings', active: false },
-                ] }),
-            })"""
-        )
         page.locator("#chat-submit").evaluate(
             """element => {
                 window.submitEvents = 0;
@@ -344,17 +339,14 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
             }"""
         )
         page.add_script_tag(content=navigation)
-        page.locator("#project-recovery-nav").wait_for()
-
-        nav = page.locator("#project-recovery-nav")
-        toggle = page.locator("#project-recovery-nav-toggle")
-        backdrop = page.locator("#project-recovery-nav-backdrop")
-        assert nav.get_attribute("aria-hidden") == "true"
-        assert nav.get_attribute("inert") is not None
-        assert backdrop.is_hidden()
-        assert not page.locator("#project-recovery-nav a").first.evaluate(
-            "element => { element.focus(); return document.activeElement === element; }"
-        )
+        settings = page.locator("#project-recovery-settings-link")
+        settings.wait_for()
+        assert settings.get_attribute("href") == "/settings"
+        assert settings.get_attribute("aria-label") == "Settings"
+        assert settings.get_attribute("data-testid") == "chat-settings-link"
+        assert page.locator("#project-recovery-nav").count() == 0
+        assert page.locator("#project-recovery-nav-toggle").count() == 0
+        assert page.locator("#project-recovery-nav-backdrop").count() == 0
 
         for selector in (
             "#sidebar-open",
@@ -365,6 +357,7 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
             "#chat-submit",
             "#stop-button",
             "[data-testid='user-menu']",
+            "#project-recovery-settings-link",
         ):
             for property_name in ("minHeight", "minWidth"):
                 assert (
@@ -438,44 +431,21 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
         assert page.locator("a[href='/thread/options'] button").get_attribute("tabindex") is None
         assert page.locator("#message").inner_text() == "Chainlit"
 
-        toggle.click()
-        assert nav.get_attribute("aria-hidden") == "false"
-        assert nav.get_attribute("inert") is None
-        assert not backdrop.is_hidden()
-        first_control = nav.locator("[data-pr-drawer-close]")
-        last_link = nav.locator("a").last
-        last_link.focus()
-        page.keyboard.press("Tab")
-        assert first_control.evaluate("element => document.activeElement === element")
-        first_control.focus()
-        page.keyboard.press("Shift+Tab")
-        assert last_link.evaluate("element => document.activeElement === element")
-        page.keyboard.press("Escape")
-        assert nav.get_attribute("aria-hidden") == "true"
-        assert toggle.evaluate("element => document.activeElement === element")
-
-        toggle.click()
-        page.mouse.click(350, 300)
-        assert nav.get_attribute("aria-hidden") == "true"
-        assert toggle.evaluate("element => document.activeElement === element")
-
-        page.evaluate(
-            "document.body.insertAdjacentHTML('beforeend', '<button id=\"main-after\"></button>')"
-        )
+        assert settings.locator("[data-pr-settings-label]").is_hidden()
+        assert settings.get_attribute("aria-label") == "Settings"
+        for width in (390, 768):
+            page.set_viewport_size({"width": width, "height": 720})
+            settings_box = settings.bounding_box()
+            theme_box = page.locator("#theme-toggle").bounding_box()
+            assert settings_box is not None
+            assert theme_box is not None
+            assert settings_box["width"] >= 44
+            assert settings_box["height"] >= 44
+            assert settings_box["x"] + settings_box["width"] <= theme_box["x"]
         page.set_viewport_size({"width": 1024, "height": 720})
-        page.wait_for_function(
-            """() => {
-                const nav = document.querySelector('#project-recovery-nav');
-                return nav?.getAttribute('aria-hidden') === 'false' && !nav?.hasAttribute('inert');
-            }"""
-        )
-        last_link.focus()
-        page.keyboard.press("Tab")
-        assert page.locator("#chat-settings-open-modal").evaluate(
-            "element => document.activeElement === element"
-        )
-        page.keyboard.press("Tab")
-        assert page.locator("#main-after").evaluate("element => document.activeElement === element")
+        assert settings.locator("[data-pr-settings-label]").is_visible()
+        settings.focus()
+        assert settings.evaluate("element => document.activeElement === element")
         browser.close()
 
 

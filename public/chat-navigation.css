@@ -13,78 +13,45 @@ body {
   color: var(--pr-ink);
 }
 
-#project-recovery-nav {
+#project-recovery-settings-link {
+  align-items: center;
   background: var(--pr-surface);
   border: 1px solid var(--pr-border);
-  border-radius: 16px;
-  box-shadow: 0 14px 34px rgba(36, 49, 58, 0.12);
-  left: 16px;
-  max-height: calc(100vh - 32px);
-  overflow: auto;
-  padding: 14px 10px;
-  position: fixed;
-  top: 16px;
-  width: 208px;
-  z-index: 90;
-}
-
-#project-recovery-nav [data-pr-brand] {
-  align-items: center;
-  color: var(--pr-plum-dark);
-  display: flex;
-  font-size: 0.95rem;
-  font-weight: 750;
-  gap: 9px;
-  letter-spacing: -0.01em;
-  margin: 2px 8px 14px;
-}
-
-#project-recovery-nav [data-pr-brand]::before {
-  background: var(--pr-plum);
-  border-radius: 8px;
-  content: "";
-  display: block;
-  height: 18px;
-  width: 18px;
-}
-
-#project-recovery-nav [data-pr-nav-links] {
-  display: grid;
-  gap: 3px;
-}
-
-#project-recovery-nav a,
-#project-recovery-nav button {
-  align-items: center;
-  border: 0;
   border-radius: 10px;
+  box-sizing: border-box;
   color: var(--pr-plum-dark);
-  display: flex;
-  font-size: 0.9rem;
-  font-weight: 650;
-  justify-content: flex-start;
+  display: inline-flex;
+  font-size: 0.875rem;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
   min-height: 44px;
-  padding: 10px 12px;
+  min-width: 44px;
+  padding: 8px 12px;
+  position: fixed;
+  right: 104px;
   text-decoration: none;
-  width: 100%;
+  top: 8px;
+  z-index: 1000;
 }
 
-#project-recovery-nav button {
-  background: transparent;
-  cursor: pointer;
-}
-
-#project-recovery-nav a:hover,
-#project-recovery-nav a[aria-current="page"],
-#project-recovery-nav button:hover {
+#project-recovery-settings-link:hover {
   background: #f2e9ee;
+  border-color: #b99aaa;
 }
 
-#project-recovery-nav a:focus-visible,
-#project-recovery-nav button:focus-visible,
-[data-pr-workspace-toggle]:focus-visible {
+#project-recovery-settings-link:focus-visible {
   outline: 3px solid var(--pr-teal);
   outline-offset: 2px;
+}
+
+#project-recovery-settings-link svg {
+  flex: 0 0 auto;
+  height: 18px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  width: 18px;
 }
 
 #sidebar-open,
@@ -104,82 +71,14 @@ body {
   min-width: 44px;
 }
 
-body:has(#project-recovery-nav) {
-  padding-left: 232px;
-}
-
-[data-pr-workspace-toggle] {
-  align-items: center;
-  background: var(--pr-surface);
-  border: 1px solid var(--pr-border);
-  border-radius: 10px;
-  color: var(--pr-plum-dark);
-  cursor: pointer;
-  display: none;
-  font: inherit;
-  justify-content: center;
-  left: 14px;
-  min-height: 44px;
-  min-width: 44px;
-  position: fixed;
-  top: 14px;
-  z-index: 91;
-}
-
-@media (max-width: 900px) {
-  #project-recovery-nav {
-    border-radius: 0 16px 16px 0;
-    bottom: 0;
-    left: 0;
-    max-height: none;
-    padding: 18px 10px;
-    top: 0;
-    transform: translateX(-105%);
-    transition: transform 180ms ease;
-    width: min(280px, calc(100vw - 44px));
+@media (max-width: 640px) {
+  #project-recovery-settings-link {
+    padding: 0;
+    right: 104px;
+    width: 44px;
   }
 
-  #project-recovery-nav[data-pr-drawer-open="true"] {
-    pointer-events: auto;
-    transform: translateX(0);
-  }
-
-  #project-recovery-nav[data-pr-drawer-open="false"] {
-    pointer-events: none;
-  }
-
-  #project-recovery-nav-backdrop {
-    background: rgba(36, 49, 58, 0.28);
-    bottom: 0;
-    cursor: default;
-    left: 0;
-    position: fixed;
-    right: 0;
-    top: 0;
-    z-index: 89;
-  }
-
-  #project-recovery-nav-backdrop[hidden] {
-    display: none;
-  }
-
-  #project-recovery-nav [data-pr-drawer-close],
-  [data-pr-workspace-toggle] {
-    display: inline-flex;
-  }
-
-  body:has(#project-recovery-nav) {
-    padding-left: 0;
-  }
-
-  body[data-pr-drawer-open="true"] {
-    overflow: hidden;
-  }
-}
-
-@media (min-width: 901px) {
-  #project-recovery-nav-backdrop,
-  #project-recovery-nav [data-pr-drawer-close] {
+  #project-recovery-settings-link [data-pr-settings-label] {
     display: none;
   }
 }

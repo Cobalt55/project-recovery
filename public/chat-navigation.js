@@ -1,7 +1,5 @@
 (() => {
-  const NAV_ID = "project-recovery-nav";
-  const TOGGLE_ID = "project-recovery-nav-toggle";
-  const BACKDROP_ID = "project-recovery-nav-backdrop";
+  const SETTINGS_LINK_ID = "project-recovery-settings-link";
   const CONTROL_LABELS = {
     "#sidebar-trigger-button": "Open conversation history",
     "#search-chats-button": "Search conversations",
@@ -17,89 +15,30 @@
     "#user-nav-button": "Account menu",
     "[data-testid='user-menu']": "Account menu",
   };
-  const mobileQuery = window.matchMedia("(max-width: 900px)");
   const SUBMIT_TRANSITION_MS = 900;
   let suppressStopUntil = 0;
 
-  const isMobile = () => mobileQuery.matches;
   const matching = (root, selector) => {
     const nodes = [];
     if (root instanceof Element && root.matches(selector)) nodes.push(root);
     if (root.querySelectorAll) nodes.push(...root.querySelectorAll(selector));
     return nodes;
   };
-  const drawerFocusable = (nav) => [
-    ...nav.querySelectorAll("button:not([disabled]), a[href]")
-  ].filter((element) => {
-    const style = window.getComputedStyle(element);
-    return (
-      !element.hidden &&
-      element.getAttribute("aria-hidden") !== "true" &&
-      style.display !== "none" &&
-      style.visibility !== "hidden" &&
-      element.getClientRects().length > 0
-    );
-  });
-
-  const setDrawer = (open, { restoreFocus = true } = {}) => {
-    const nav = document.getElementById(NAV_ID);
-    const toggle = document.getElementById(TOGGLE_ID);
-    const backdrop = document.getElementById(BACKDROP_ID);
-    if (!nav || !toggle || !backdrop) return;
-    const visible = isMobile() && open;
-    nav.dataset.prDrawerOpen = String(visible);
-    nav.setAttribute("data-pr-drawer-open", String(visible));
-    nav.setAttribute("aria-hidden", String(isMobile() && !visible));
-    nav.toggleAttribute("inert", isMobile() && !visible);
-    backdrop.hidden = !visible;
-    backdrop.setAttribute("aria-hidden", String(!visible));
-    document.body.dataset.prDrawerOpen = String(visible);
-    toggle.setAttribute("aria-expanded", String(visible));
-    if (visible) {
-      nav.querySelector("[data-pr-drawer-close]")?.focus();
-    } else if (restoreFocus && isMobile()) {
-      toggle.focus();
-    }
-  };
-
-  const renderNavigation = (items) => {
-    if (document.getElementById(NAV_ID)) return;
-    const backdrop = document.createElement("div");
-    backdrop.id = BACKDROP_ID;
-    backdrop.hidden = true;
-    backdrop.setAttribute("aria-hidden", "true");
-    const nav = document.createElement("nav");
-    nav.id = NAV_ID;
-    nav.setAttribute("aria-label", "Project Recovery workspace");
-    nav.innerHTML = [
-      '<div data-pr-brand>Project Recovery</div>',
-      '<button type="button" data-pr-drawer-close aria-label="Close workspace navigation">Close</button>',
-      '<div data-pr-nav-links></div>',
+  const mountSettingsLink = () => {
+    if (document.getElementById(SETTINGS_LINK_ID)) return;
+    const link = document.createElement("a");
+    link.id = SETTINGS_LINK_ID;
+    link.href = "/settings";
+    link.setAttribute("aria-label", "Settings");
+    link.setAttribute("data-testid", "chat-settings-link");
+    link.innerHTML = [
+      '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">',
+      '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.72l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>',
+      '<circle cx="12" cy="12" r="3"></circle>',
+      "</svg>",
+      '<span data-pr-settings-label>Settings</span>',
     ].join("");
-    const links = nav.querySelector("[data-pr-nav-links]");
-    for (const item of items) {
-      const link = document.createElement("a");
-      link.href = item.href;
-      link.textContent = item.label;
-      if (item.active || window.location.pathname === item.href) {
-        link.setAttribute("aria-current", "page");
-      }
-      links.appendChild(link);
-    }
-    const toggle = document.createElement("button");
-    toggle.id = TOGGLE_ID;
-    toggle.type = "button";
-    toggle.dataset.prWorkspaceToggle = "true";
-    toggle.setAttribute("data-pr-drawer-open", "true");
-    toggle.setAttribute("aria-controls", NAV_ID);
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.setAttribute("aria-label", "Open workspace navigation");
-    toggle.textContent = "Menu";
-    document.body.append(toggle, backdrop, nav);
-    toggle.addEventListener("click", () => setDrawer(true));
-    nav.querySelector("[data-pr-drawer-close]").addEventListener("click", () => setDrawer(false));
-    backdrop.addEventListener("click", () => setDrawer(false));
-    setDrawer(false, { restoreFocus: false });
+    document.body.appendChild(link);
   };
 
   const labelNativeControls = (root) => {
@@ -195,28 +134,8 @@
     });
   }
 
-  const load = async () => {
-    try {
-      const response = await fetch("/api/navigation", {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
-      if (response.ok) {
-        const payload = await response.json();
-        renderNavigation(payload.items || []);
-        return;
-      }
-    } catch {
-      // A direct Chainlit login still receives the safe personal destinations.
-    }
-    renderNavigation([
-      { label: "Chat", href: "/chat" },
-      { label: "Settings", href: "/settings" },
-    ]);
-  };
-
   const start = () => {
-    load();
+    mountSettingsLink();
     enhance(document);
     const observer = new MutationObserver((records) => {
       records.forEach((record) => {
@@ -226,6 +145,7 @@
         }
         record.addedNodes.forEach(enhance);
       });
+      mountSettingsLink();
     });
     observer.observe(document.body, {
       attributes: true,
@@ -244,34 +164,6 @@
       },
       true,
     );
-    document.addEventListener("keydown", (event) => {
-      const nav = document.getElementById(NAV_ID);
-      if (
-        !nav ||
-        !isMobile() ||
-        nav.dataset.prDrawerOpen !== "true" ||
-        nav.getAttribute("aria-hidden") === "true"
-      ) {
-        return;
-      }
-      if (event.key === "Escape") {
-        setDrawer(false);
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const focusable = drawerFocusable(nav);
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    });
-    mobileQuery.addEventListener("change", () => setDrawer(false, { restoreFocus: false }));
   };
 
   if (document.readyState === "loading") {

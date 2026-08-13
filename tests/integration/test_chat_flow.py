@@ -107,18 +107,19 @@ def test_chainlit_workspace_contract_uses_the_approved_native_shell_hooks() -> N
 
     assert 'name = "Project Recovery"' in config
     assert "Ask a grounded question" in translations
-    assert "Project Recovery" in navigation
-    nav_rule = stylesheet.split("#project-recovery-nav", maxsplit=1)[1].split("}", maxsplit=1)[0]
-    assert "bottom:" not in nav_rule
-    assert "#project-recovery-nav" in stylesheet
+    assert "project-recovery-settings-link" in navigation
+    assert 'href = "/settings"' in navigation
+    assert "#project-recovery-settings-link" in stylesheet
+    assert "#project-recovery-nav" not in stylesheet
+    assert "body:has(#project-recovery-nav)" not in stylesheet
     assert "#chat-submit" in navigation
     assert "#upload-button" in navigation
     assert "#chat-settings-open-modal" in navigation
     assert "MutationObserver" in navigation
     assert "function enhance(root)" in navigation
     assert "data-pr-enhanced" in navigation
-    assert "data-pr-drawer-open" in navigation
-    assert "data-pr-drawer-close" in navigation
+    assert '"Settings"' in navigation
+    assert "data-testid" in navigation
     assert "Send message" in navigation
     assert "Stop response" in navigation
     assert '"stop": "Stop response"' in translations
