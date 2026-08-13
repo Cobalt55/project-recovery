@@ -129,9 +129,7 @@ class FakeUsers:
         elif status == "revoked":
             rows = [row for row in rows if row.revoked_at is not None]
         elif status == "expired":
-            rows = [
-                row for row in rows if row.revoked_at is None and row.expires_at <= now
-            ]
+            rows = [row for row in rows if row.revoked_at is None and row.expires_at <= now]
         self.login_list_call = (offset, limit, query, status)
         return rows[offset : offset + limit]
 
@@ -440,9 +438,9 @@ def test_logins_page_renders_secret_free_desktop_and_mobile_session_views() -> N
         f"<th>{column}</th>" in page.text
         for column in ["User", "Status", "Signed in", "Last active", "Expires"]
     )
-    assert '<details>' in page.text
+    assert "<details>" in page.text
     assert str(users.login_id) in page.text
-    assert '<td>Expired</td>' in page.text
+    assert "<td>Expired</td>" in page.text
     assert 'datetime="2026-08-13T14:30:00+00:00"' in page.text
     assert 'data-confirm="Revoke this session?"' in page.text
     assert "session-member" not in page.text

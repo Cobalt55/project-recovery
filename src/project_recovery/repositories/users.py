@@ -162,19 +162,16 @@ class UserRepository(RepositoryBase):
         """List bounded, secret-free session columns for the login history page."""
         if limit < 1:
             raise ValueError("limit must be positive")
-        statement = (
-            select(
-                LoginSession.id,
-                LoginSession.user_id,
-                User.email,
-                User.is_active,
-                LoginSession.created_at,
-                LoginSession.last_seen_at,
-                LoginSession.expires_at,
-                LoginSession.revoked_at,
-            )
-            .join(User, LoginSession.user_id == User.id)
-        )
+        statement = select(
+            LoginSession.id,
+            LoginSession.user_id,
+            User.email,
+            User.is_active,
+            LoginSession.created_at,
+            LoginSession.last_seen_at,
+            LoginSession.expires_at,
+            LoginSession.revoked_at,
+        ).join(User, LoginSession.user_id == User.id)
         normalized_query = (query or "").strip().casefold()[:320]
         if normalized_query:
             statement = statement.where(User.email.ilike(f"%{normalized_query}%"))

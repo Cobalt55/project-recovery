@@ -29,6 +29,8 @@ from project_recovery.config import (
 
 MODEL_WIDGET_ID = "Model"
 REASONING_WIDGET_ID = "Reasoning"
+
+
 def validate_chat_settings(values: dict[str, Any]) -> tuple[ModelId, ReasoningEffort] | None:
     """Normalize only the approved model and reasoning policy."""
     model = values.get(MODEL_WIDGET_ID)

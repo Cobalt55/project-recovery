@@ -26,9 +26,7 @@ def make_request(cookie: str) -> Request:
 
 
 def assert_cookie_deleted(set_cookie: list[str], name: str) -> None:
-    assert any(
-        header.startswith(f"{name}=") and "Max-Age=0" in header for header in set_cookie
-    )
+    assert any(header.startswith(f"{name}=") and "Max-Age=0" in header for header in set_cookie)
 
 
 @pytest.mark.asyncio
@@ -53,8 +51,7 @@ async def test_chainlit_logout_revokes_application_session_and_clears_all_auth_c
         )
     )
     request = make_request(
-        "project_recovery_session=active-token; "
-        "project_recovery_csrf=csrf-token; access_token=jwt"
+        "project_recovery_session=active-token; project_recovery_csrf=csrf-token; access_token=jwt"
     )
     response = Response()
 
@@ -104,9 +101,7 @@ def test_chainlit_workspace_contract_uses_the_approved_native_shell_hooks() -> N
 
     root = Path(__file__).parents[2]
     config = (root / ".chainlit" / "config.toml").read_text(encoding="utf-8")
-    translations = (root / ".chainlit" / "translations" / "en-US.json").read_text(
-        encoding="utf-8"
-    )
+    translations = (root / ".chainlit" / "translations" / "en-US.json").read_text(encoding="utf-8")
     stylesheet = (root / "public" / "chat-navigation.css").read_text(encoding="utf-8")
     navigation = (root / "public" / "chat-navigation.js").read_text(encoding="utf-8")
 
