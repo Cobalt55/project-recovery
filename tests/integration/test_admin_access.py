@@ -412,7 +412,7 @@ def test_logins_page_renders_secret_free_desktop_and_mobile_session_views() -> N
         is_active=True,
         created_at=signed_in,
         last_seen_at=signed_in + timedelta(minutes=5),
-        expires_at=signed_in + timedelta(hours=12),
+        expires_at=datetime(2000, 1, 1, tzinfo=UTC),
         revoked_at=None,
         token_hash="session-member",
         csrf_token_hash="csrf_token_hash",
@@ -430,6 +430,7 @@ def test_logins_page_renders_secret_free_desktop_and_mobile_session_views() -> N
     )
     assert '<details>' in page.text
     assert str(users.login_id) in page.text
+    assert '<td>Expired</td>' in page.text
     assert 'datetime="2026-08-13T14:30:00+00:00"' in page.text
     assert 'data-confirm="Revoke this session?"' in page.text
     assert "session-member" not in page.text
