@@ -519,8 +519,8 @@ def test_chainlit_submit_guard_blocks_a_replaced_stop_only_during_transition() -
         browser.close()
 
 
-def test_chainlit_reused_submit_becomes_a_named_stop_and_keeps_native_cancellation() -> None:
-    """An ID-only React transition must not leave Stop named as Send."""
+def test_chainlit_reused_submit_keeps_the_correct_name_through_its_full_lifecycle() -> None:
+    """A reused action button must be named for Send, Stop, and Send again."""
 
     navigation = (ROOT / "public" / "chat-navigation.js").read_text(encoding="utf-8")
     markup = '<button id="chat-submit" type="button" aria-label="Send message">Send</button>'
@@ -541,7 +541,13 @@ def test_chainlit_reused_submit_becomes_a_named_stop_and_keeps_native_cancellati
                       button.id = 'stop-button';
                       button.textContent = 'Stop';
                       button.addEventListener('click', (stopEvent) => {
-                        if (!stopEvent.defaultPrevented) window.stopEvents += 1;
+                        if (stopEvent.defaultPrevented) return;
+                        window.stopEvents += 1;
+                        const action = stopEvent.currentTarget;
+                        window.setTimeout(() => {
+                          action.id = 'chat-submit';
+                          action.textContent = 'Send';
+                        }, 0);
                       });
                     }, 25);
                   }, 0);
@@ -561,6 +567,10 @@ def test_chainlit_reused_submit_becomes_a_named_stop_and_keeps_native_cancellati
         page.wait_for_timeout(900)
         stop.click()
         assert page.evaluate("window.stopEvents") == 1
+        submit = page.locator("#chat-submit")
+        submit.wait_for()
+        page.wait_for_timeout(25)
+        assert submit.get_attribute("aria-label") == "Send message"
         browser.close()
 
 

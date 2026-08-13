@@ -151,6 +151,7 @@
       submit.addEventListener(
         "click",
         (event) => {
+          if (!submit.matches("#chat-submit")) return;
           if (submit.dataset.prSubmitting === "true") {
             event.preventDefault();
             event.stopImmediatePropagation();
@@ -177,6 +178,14 @@
     improveHistory(root);
     improveDialogs(root);
     protectSubmit(root);
+    matching(root, "#chat-submit").forEach((submit) => {
+      if (
+        submit.dataset.prSubmitting !== "true" &&
+        submit.getAttribute("aria-label") !== "Send message"
+      ) {
+        submit.setAttribute("aria-label", "Send message");
+      }
+    });
     matching(root, "#stop-button").forEach((stop) => {
       if (stop.getAttribute("aria-label") !== "Stop response") {
         stop.setAttribute("aria-label", "Stop response");
