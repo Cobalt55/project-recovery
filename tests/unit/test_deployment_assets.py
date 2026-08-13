@@ -65,6 +65,8 @@ def test_approved_wrapper_resolves_from_the_git_common_repository(tmp_path: Path
         timeout=15,
     ).stdout.strip()
     expected = (Path(common_dir).parent / "az-amusheno.ps1").resolve()
+    if not expected.is_file():
+        pytest.skip("the approved machine-local Azure wrapper is not present")
     completed = subprocess.run(
         [
             POWERSHELL,
