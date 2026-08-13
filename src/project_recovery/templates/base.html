@@ -8,19 +8,33 @@
     <script src="/static/app.js" defer></script>
   </head>
   <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="app-frame">
       <aside class="side-rail" aria-label="Application">
         <a class="wordmark" href="{% if user.force_password_change %}/password/change{% else %}/chat{% endif %}">Project Recovery</a>
         {% if not user.force_password_change %}<nav aria-label="Main navigation">
-          <ul class="navigation-list">
+          <ul class="navigation-list" aria-label="Workspace">
             {% for item in navigation %}
+            {% if item.group == "workspace" %}
             <li><a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+            {% endif %}
             {% endfor %}
           </ul>
+          {% if navigation | selectattr("group", "equalto", "admin") | list %}
+          <section class="navigation-group" aria-labelledby="admin-navigation-heading">
+            <h2 id="admin-navigation-heading">Admin</h2>
+            <ul class="navigation-list">
+              {% for item in navigation %}{% if item.group == "admin" %}
+              <li><a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+              {% endif %}{% endfor %}
+            </ul>
+          </section>
+          {% endif %}
         </nav>{% endif %}
       </aside>
       <div class="workspace">
         <header class="top-bar">
+          {% if not user.force_password_change %}<button class="menu-button" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="navigation-drawer" data-drawer-open><span aria-hidden="true">☰</span></button>{% endif %}
           <p class="account-name">{{ user.email }}</p>
           <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -30,5 +44,31 @@
         <main id="main-content">{% block content %}{% endblock %}</main>
       </div>
     </div>
+    {% if not user.force_password_change %}
+    <div class="drawer-backdrop" data-drawer-backdrop aria-hidden="true" hidden></div>
+    <aside class="navigation-drawer" id="navigation-drawer" role="dialog" aria-modal="true" aria-label="Navigation" aria-hidden="true" tabindex="-1" data-drawer hidden>
+      <div class="drawer-header">
+        <a class="wordmark" href="/chat">Project Recovery</a>
+        <button class="menu-button" type="button" aria-label="Close navigation" data-drawer-close><span aria-hidden="true">×</span></button>
+      </div>
+      <nav aria-label="Mobile navigation">
+        <ul class="navigation-list" aria-label="Workspace">
+          {% for item in navigation %}{% if item.group == "workspace" %}
+          <li><a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+          {% endif %}{% endfor %}
+        </ul>
+        {% if navigation | selectattr("group", "equalto", "admin") | list %}
+        <section class="navigation-group" aria-labelledby="mobile-admin-navigation-heading">
+          <h2 id="mobile-admin-navigation-heading">Admin</h2>
+          <ul class="navigation-list">
+            {% for item in navigation %}{% if item.group == "admin" %}
+            <li><a class="nav-link{% if item.active %} is-active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+            {% endif %}{% endfor %}
+          </ul>
+        </section>
+        {% endif %}
+      </nav>
+    </aside>
+    {% endif %}
   </body>
 </html>

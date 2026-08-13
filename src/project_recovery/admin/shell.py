@@ -1,7 +1,7 @@
 """Shared application-shell contracts and role-filtered navigation."""
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from project_recovery.auth.sessions import AuthService, CurrentUser
@@ -14,6 +14,7 @@ class NavigationItem:
     label: str
     href: str
     active: bool
+    group: Literal["workspace", "admin"]
 
 
 _USER_ITEMS = (("Chat", "/chat"), ("Settings", "/settings"))
@@ -31,8 +32,15 @@ _ADMIN_ITEMS = (
 
 def navigation_items(user: CurrentUser, path: str) -> list[NavigationItem]:
     """Return only the approved destinations visible to a principal."""
-    entries = _USER_ITEMS + (_ADMIN_ITEMS if user.is_admin else ())
-    return [NavigationItem(label, href, path == href) for label, href in entries]
+    workspace = [
+        NavigationItem(label, href, path == href, "workspace") for label, href in _USER_ITEMS
+    ]
+    admin = (
+        [NavigationItem(label, href, path == href, "admin") for label, href in _ADMIN_ITEMS]
+        if user.is_admin
+        else []
+    )
+    return workspace + admin
 
 
 class DatabaseBoundary(Protocol):

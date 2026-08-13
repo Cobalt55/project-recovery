@@ -52,6 +52,8 @@ from project_recovery.repositories.users import UserRepository
 
 LOGGER = logging.getLogger(__name__)
 PACKAGE_ROOT = Path(__file__).parent
+
+
 def _services(settings: Settings) -> AppServices:
     database = Database(settings.database_url)
     passwords = PasswordService()
@@ -235,7 +237,12 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
         return JSONResponse(
             {
                 "items": [
-                    {"label": item.label, "href": item.href}
+                    {
+                        "label": item.label,
+                        "href": item.href,
+                        "active": item.active,
+                        "group": item.group,
+                    }
                     for item in navigation_items(current, request.url.path)
                 ]
             }

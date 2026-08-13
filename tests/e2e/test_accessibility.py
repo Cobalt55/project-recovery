@@ -23,6 +23,19 @@ def test_shared_shell_has_landmarks_and_keyboard_focus_targets() -> None:
     assert 'rel="stylesheet"' in shell
 
 
+def test_shared_shell_has_an_accessible_responsive_drawer() -> None:
+    """Removing responsive navigation controls must not strand mobile keyboard users."""
+    shell = _template("base.html")
+    css = (ROOT / "src" / "project_recovery" / "static" / "app.css").read_text(encoding="utf-8")
+
+    assert 'aria-label="Open navigation"' in shell
+    assert 'aria-label="Close navigation"' in shell
+    assert "data-drawer-backdrop" in shell
+    assert 'aria-modal="true"' in shell
+    assert "ADMIN" not in shell
+    assert "@media (max-width: 900px)" in css
+
+
 def test_login_and_settings_forms_have_explicit_labels_and_autocomplete() -> None:
     """Credential forms expose their purpose to keyboard and assistive-technology users."""
     login = _template("login.html")
