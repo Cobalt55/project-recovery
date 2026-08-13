@@ -48,30 +48,32 @@ def _render_workspace_shell() -> str:
 def _render_logins_page() -> str:
     """Render the real session view with controlled safe projection values."""
     now = datetime(2026, 8, 13, 14, 30, tzinfo=UTC)
-    return Environment(loader=FileSystemLoader(TEMPLATES), autoescape=True).get_template(
-        "logins.html"
-    ).render(
-        user=SimpleNamespace(email="admin@example.test", force_password_change=False),
-        csrf_token="test-csrf",
-        navigation=[],
-        logins=[
-            SimpleNamespace(
-                id=uuid4(),
-                email="member@example.test",
-                is_active=True,
-                created_at=now,
-                last_seen_at=now + timedelta(minutes=5),
-                expires_at=now + timedelta(hours=12),
-                revoked_at=None,
-            )
-        ],
-        login_status=login_status,
-        offset=0,
-        limit=25,
-        query="",
-        status="all",
-        has_next=False,
-        previous_offset=None,
+    return (
+        Environment(loader=FileSystemLoader(TEMPLATES), autoescape=True)
+        .get_template("logins.html")
+        .render(
+            user=SimpleNamespace(email="admin@example.test", force_password_change=False),
+            csrf_token="test-csrf",
+            navigation=[],
+            logins=[
+                SimpleNamespace(
+                    id=uuid4(),
+                    email="member@example.test",
+                    is_active=True,
+                    created_at=now,
+                    last_seen_at=now + timedelta(minutes=5),
+                    expires_at=now + timedelta(hours=12),
+                    revoked_at=None,
+                )
+            ],
+            login_status=login_status,
+            offset=0,
+            limit=25,
+            query="",
+            status="all",
+            has_next=False,
+            previous_offset=None,
+        )
     )
 
 
@@ -207,6 +209,7 @@ def test_login_revoke_prompts_for_confirmation(logins_page: Page) -> None:
 
     assert confirmations == ["Revoke this session?"]
 
+
 def test_login_and_settings_forms_have_explicit_labels_and_autocomplete() -> None:
     """Credential forms expose their purpose to keyboard and assistive-technology users."""
     login = _template("login.html")
@@ -279,3 +282,119 @@ def test_chainlit_shim_covers_native_controls_and_reduces_history_to_one_tab_sto
     assert "data-pr-submitting" in navigation
     assert "data-pr-drawer-open" in navigation
     assert "data-pr-drawer-close" in navigation
+
+
+def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls() -> None:
+    """The shipped shim must preserve native actions while improving their browser behavior."""
+
+    navigation = (ROOT / "public" / "chat-navigation.js").read_text(encoding="utf-8")
+    stylesheet = (ROOT / "public" / "chat-navigation.css").read_text(encoding="utf-8")
+    markup = """
+    <button id="sidebar-open"></button>
+    <input id="thread-search">
+    <button id="new-chat"></button>
+    <button id="upload-button"></button>
+    <button id="chat-submit"></button>
+    <button data-testid="user-menu"></button>
+    <a href="/thread/duplicate" aria-label="Thread duplicate">
+      <button aria-label="Thread duplicate">Open</button>
+    </a>
+    <a href="/thread/options" aria-label="Thread options">
+      <button aria-label="Thread options menu">Options</button>
+    </a>
+    <article id="message">Chainlit</article>
+    """
+
+    with sync_playwright() as browser_driver:
+        browser = browser_driver.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 390, "height": 720})
+        page.set_content(markup)
+        page.add_style_tag(content=stylesheet)
+        page.evaluate(
+            """window.fetch = async () => ({
+                ok: true,
+                json: async () => ({ items: [
+                    { label: 'Chat', href: '/chat', active: true },
+                    { label: 'Settings', href: '/settings', active: false },
+                ] }),
+            })"""
+        )
+        page.locator("#chat-submit").evaluate(
+            """element => {
+                window.submitEvents = 0;
+                element.addEventListener('click', () => window.submitEvents += 1);
+            }"""
+        )
+        page.add_script_tag(content=navigation)
+        page.locator("#project-recovery-nav").wait_for()
+
+        nav = page.locator("#project-recovery-nav")
+        toggle = page.locator("#project-recovery-nav-toggle")
+        backdrop = page.locator("#project-recovery-nav-backdrop")
+        assert nav.get_attribute("aria-hidden") == "true"
+        assert nav.get_attribute("inert") is not None
+        assert backdrop.is_hidden()
+        assert not page.locator("#project-recovery-nav a").first.evaluate(
+            "element => { element.focus(); return document.activeElement === element; }"
+        )
+
+        for selector in (
+            "#sidebar-open",
+            "#thread-search",
+            "#new-chat",
+            "#upload-button",
+            "#chat-submit",
+            "[data-testid='user-menu']",
+        ):
+            assert (
+                page.locator(selector).evaluate(
+                    "element => Number.parseFloat(getComputedStyle(element).minHeight)"
+                )
+                >= 44
+            )
+
+        page.evaluate(
+            """document.body.insertAdjacentHTML(
+                'beforeend', '<button id="chat-settings-open-modal"></button>'
+            )"""
+        )
+        assert (
+            page.locator("#chat-settings-open-modal").get_attribute("aria-label") == "Chat settings"
+        )
+        assert (
+            page.locator("#chat-settings-open-modal").evaluate(
+                "element => Number.parseFloat(getComputedStyle(element).minHeight)"
+            )
+            >= 44
+        )
+
+        submit = page.locator("#chat-submit")
+        submit.click()
+        submit.click()
+        assert page.evaluate("window.submitEvents") == 1
+
+        assert page.locator("a[href='/thread/duplicate'] button").get_attribute("tabindex") == "-1"
+        assert page.locator("a[href='/thread/options'] button").get_attribute("tabindex") is None
+        assert page.locator("#message").inner_text() == "Chainlit"
+
+        toggle.click()
+        assert nav.get_attribute("aria-hidden") == "false"
+        assert nav.get_attribute("inert") is None
+        assert not backdrop.is_hidden()
+        first_control = nav.locator("[data-pr-drawer-close]")
+        last_link = nav.locator("a").last
+        last_link.focus()
+        page.keyboard.press("Tab")
+        assert first_control.evaluate("element => document.activeElement === element")
+        first_control.focus()
+        page.keyboard.press("Shift+Tab")
+        assert last_link.evaluate("element => document.activeElement === element")
+        page.keyboard.press("Escape")
+        assert nav.get_attribute("aria-hidden") == "true"
+        assert toggle.evaluate("element => document.activeElement === element")
+
+        toggle.click()
+        page.mouse.click(350, 300)
+        assert nav.get_attribute("aria-hidden") == "true"
+        assert toggle.evaluate("element => document.activeElement === element")
+        browser.close()

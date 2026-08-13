@@ -1,6 +1,7 @@
 (() => {
   const NAV_ID = "project-recovery-nav";
   const TOGGLE_ID = "project-recovery-nav-toggle";
+  const BACKDROP_ID = "project-recovery-nav-backdrop";
   const CONTROL_LABELS = {
     "#sidebar-open": "Sidebar",
     "#sidebar-close": "Close sidebar",
@@ -12,31 +13,49 @@
     "#stop-button": "Stop response",
     "[data-testid='user-menu']": "Account menu",
   };
+  const mobileQuery = window.matchMedia("(max-width: 900px)");
 
-  const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
+  const isMobile = () => mobileQuery.matches;
+  const matching = (root, selector) => {
+    const nodes = [];
+    if (root instanceof Element && root.matches(selector)) nodes.push(root);
+    if (root.querySelectorAll) nodes.push(...root.querySelectorAll(selector));
+    return nodes;
+  };
+  const drawerFocusable = (nav) => [
+    ...nav.querySelectorAll("button:not([disabled]), a[href]")
+  ].filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
 
-  const setDrawer = (open) => {
+  const setDrawer = (open, { restoreFocus = true } = {}) => {
     const nav = document.getElementById(NAV_ID);
     const toggle = document.getElementById(TOGGLE_ID);
-    if (!nav || !toggle) return;
-    nav.dataset.prDrawerOpen = String(open);
-    nav.setAttribute("data-pr-drawer-open", String(open));
-    document.body.dataset.prDrawerOpen = String(open);
-    toggle.setAttribute("aria-expanded", String(open));
-    if (open && isMobile()) {
+    const backdrop = document.getElementById(BACKDROP_ID);
+    if (!nav || !toggle || !backdrop) return;
+    const visible = isMobile() && open;
+    nav.dataset.prDrawerOpen = String(visible);
+    nav.setAttribute("data-pr-drawer-open", String(visible));
+    nav.setAttribute("aria-hidden", String(isMobile() && !visible));
+    nav.toggleAttribute("inert", isMobile() && !visible);
+    backdrop.hidden = !visible;
+    backdrop.setAttribute("aria-hidden", String(!visible));
+    document.body.dataset.prDrawerOpen = String(visible);
+    toggle.setAttribute("aria-expanded", String(visible));
+    if (visible) {
       nav.querySelector("[data-pr-drawer-close]")?.focus();
-    } else if (!open) {
+    } else if (restoreFocus && isMobile()) {
       toggle.focus();
     }
   };
 
   const renderNavigation = (items) => {
     if (document.getElementById(NAV_ID)) return;
+    const backdrop = document.createElement("div");
+    backdrop.id = BACKDROP_ID;
+    backdrop.hidden = true;
+    backdrop.setAttribute("aria-hidden", "true");
     const nav = document.createElement("nav");
     nav.id = NAV_ID;
     nav.setAttribute("aria-label", "Project Recovery workspace");
-    nav.dataset.prDrawerOpen = "false";
-    nav.setAttribute("data-pr-drawer-open", "false");
     nav.innerHTML = [
       '<div data-pr-brand>Project Recovery</div>',
       '<button type="button" data-pr-drawer-close aria-label="Close workspace navigation">Close</button>',
@@ -52,28 +71,25 @@
       }
       links.appendChild(link);
     }
-
     const toggle = document.createElement("button");
     toggle.id = TOGGLE_ID;
     toggle.type = "button";
     toggle.dataset.prWorkspaceToggle = "true";
-    toggle.dataset.prDrawerOpen = "true";
     toggle.setAttribute("data-pr-drawer-open", "true");
     toggle.setAttribute("aria-controls", NAV_ID);
     toggle.setAttribute("aria-expanded", "false");
     toggle.setAttribute("aria-label", "Open workspace navigation");
     toggle.textContent = "Menu";
-    document.body.append(toggle, nav);
+    document.body.append(toggle, backdrop, nav);
     toggle.addEventListener("click", () => setDrawer(true));
     nav.querySelector("[data-pr-drawer-close]").addEventListener("click", () => setDrawer(false));
-    nav.addEventListener("click", (event) => {
-      if (event.target === nav && isMobile()) setDrawer(false);
-    });
+    backdrop.addEventListener("click", () => setDrawer(false));
+    setDrawer(false, { restoreFocus: false });
   };
 
   const labelNativeControls = (root) => {
     for (const [selector, label] of Object.entries(CONTROL_LABELS)) {
-      root.querySelectorAll(selector).forEach((control) => {
+      matching(root, selector).forEach((control) => {
         if (!control.getAttribute("aria-label")) control.setAttribute("aria-label", label);
         control.dataset.prEnhanced = "true";
         control.setAttribute("data-pr-enhanced", "true");
@@ -82,7 +98,11 @@
   };
 
   const improveHistory = (root) => {
-    root.querySelectorAll("a[href*='/thread/'] button, a[href*='/threads/'] button").forEach((button) => {
+    matching(root, "a[href*='/thread/'] button, a[href*='/threads/'] button").forEach((button) => {
+      const link = button.closest("a[href]");
+      const linkName = (link?.getAttribute("aria-label") || link?.textContent || "").trim();
+      const buttonName = (button.getAttribute("aria-label") || button.textContent || "").trim();
+      if (!linkName || !buttonName || linkName !== buttonName) return;
       button.setAttribute("tabindex", "-1");
       button.setAttribute("aria-hidden", "true");
       button.dataset.prEnhanced = "true";
@@ -90,26 +110,28 @@
     });
   };
 
+  let dialogSequence = 0;
   const improveDialogs = (root) => {
-    root.querySelectorAll("[role=dialog]").forEach((dialog) => {
+    matching(root, "[role=dialog]").forEach((dialog) => {
       const title = dialog.querySelector("h1, h2, [data-slot='dialog-title']");
       const description = dialog.querySelector("p, [data-slot='dialog-description']");
+      const dialogId = dialog.id || `pr-dialog-${dialogSequence += 1}`;
+      if (!dialog.id) dialog.id = dialogId;
       if (title) {
-        if (!title.id) title.id = "pr-dialog-title";
+        if (!title.id) title.id = `${dialogId}-title`;
         dialog.setAttribute("aria-labelledby", title.id);
       }
       if (description) {
-        if (!description.id) description.id = "pr-dialog-description";
+        if (!description.id) description.id = `${dialogId}-description`;
         dialog.setAttribute("aria-describedby", description.id);
       }
     });
   };
 
   const protectSubmit = (root) => {
-    root.querySelectorAll("#chat-submit").forEach((submit) => {
-      if (submit.dataset.prEnhanced) return;
-      submit.dataset.prEnhanced = "true";
-      submit.setAttribute("data-pr-enhanced", "true");
+    matching(root, "#chat-submit").forEach((submit) => {
+      if (submit.dataset.prSubmitGuard === "true") return;
+      submit.dataset.prSubmitGuard = "true";
       submit.addEventListener(
         "click",
         (event) => {
@@ -133,21 +155,15 @@
   };
 
   function enhance(root) {
+    if (!(root instanceof Element || root === document)) return;
     labelNativeControls(root);
     improveHistory(root);
     improveDialogs(root);
     protectSubmit(root);
-    root.querySelectorAll("#stop-button").forEach((stop) => {
+    matching(root, "#stop-button").forEach((stop) => {
       stop.setAttribute("aria-label", "Stop response");
       stop.dataset.prEnhanced = "true";
       stop.setAttribute("data-pr-enhanced", "true");
-    });
-    root.querySelectorAll("h1, h2, p, span").forEach((element) => {
-      if (element.childElementCount) return;
-      if (element.textContent.trim() === "Chainlit") element.textContent = "Project Recovery";
-      if (element.textContent.trim() === "How can I help you today?") {
-        element.textContent = "Ask a grounded question to get started.";
-      }
     });
   }
 
@@ -160,31 +176,45 @@
       if (response.ok) {
         const payload = await response.json();
         renderNavigation(payload.items || []);
-      } else {
-        renderNavigation([]);
+        return;
       }
     } catch {
-      renderNavigation([
-        { label: "Chat", href: "/chat" },
-        { label: "Settings", href: "/settings" },
-      ]);
+      // A direct Chainlit login still receives the safe personal destinations.
     }
+    renderNavigation([
+      { label: "Chat", href: "/chat" },
+      { label: "Settings", href: "/settings" },
+    ]);
   };
 
   const start = () => {
     load();
     enhance(document);
     const observer = new MutationObserver((records) => {
-      records.forEach((record) => record.addedNodes.forEach((node) => {
-        if (node.nodeType === Node.ELEMENT_NODE) enhance(node);
-      }));
+      records.forEach((record) => record.addedNodes.forEach(enhance));
     });
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && document.body.dataset.prDrawerOpen === "true") {
+      const nav = document.getElementById(NAV_ID);
+      if (!nav || nav.getAttribute("aria-hidden") === "true") return;
+      if (event.key === "Escape") {
         setDrawer(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = drawerFocusable(nav);
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     });
+    mobileQuery.addEventListener("change", () => setDrawer(false, { restoreFocus: false }));
   };
 
   if (document.readyState === "loading") {

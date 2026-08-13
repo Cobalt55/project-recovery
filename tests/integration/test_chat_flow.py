@@ -126,6 +126,7 @@ def test_chainlit_workspace_contract_uses_the_approved_native_shell_hooks() -> N
     assert "data-pr-drawer-close" in navigation
     assert "Send message" in navigation
     assert "Stop response" in navigation
+    assert '"stop": "Stop response"' in translations
 
 
 def test_chainlit_mount_uses_authenticated_callbacks_and_custom_navigation() -> None:

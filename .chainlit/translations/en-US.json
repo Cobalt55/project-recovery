@@ -61,7 +61,7 @@
             "placeholder": "Ask a grounded question...",
             "actions": {
                 "send": "Send message",
-                "stop": "Stop Task",
+                "stop": "Stop response",
                 "attachFiles": "Attach files"
             }
         },
