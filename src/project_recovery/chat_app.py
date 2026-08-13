@@ -19,6 +19,7 @@ from starlette.responses import Response
 from project_recovery.agent_runtime import AgentEvent
 from project_recovery.auth.cookies import SESSION_COOKIE, clear_login_cookies
 from project_recovery.chainlit_data import ChainlitDataLayer
+from project_recovery.chat_principal import current_feedback_http_principal
 from project_recovery.chat_state import get_chat_dependencies
 from project_recovery.config import (
     ALLOWED_MODELS,
@@ -46,6 +47,11 @@ def _session_principal() -> str | None:
     except Exception:
         return None
     return user.identifier if isinstance(user, ChainlitUser) else None
+
+
+def _data_layer_principal() -> str | None:
+    """Prefer WebSocket identity, falling back only to a validated feedback request."""
+    return _session_principal() or current_feedback_http_principal()
 
 
 def _current_user_id() -> UUID:
@@ -91,7 +97,7 @@ def data_layer() -> ChainlitDataLayer:
         chats=dependencies.chats,
         users=dependencies.users,
         attachment_root=dependencies.attachment_root,
-        principal_provider=_session_principal,
+        principal_provider=_data_layer_principal,
         runtime=dependencies.runtime,
     )
 

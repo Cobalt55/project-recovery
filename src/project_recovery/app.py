@@ -5,6 +5,7 @@ import os
 import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from contextvars import Token
 from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
@@ -37,6 +38,10 @@ from project_recovery.auth.cookies import (
 from project_recovery.auth.passwords import PasswordService
 from project_recovery.auth.rate_limit import LoginRateLimiter
 from project_recovery.auth.sessions import AuthService, CurrentUser
+from project_recovery.chat_principal import (
+    bind_feedback_http_principal,
+    clear_feedback_http_principal,
+)
 from project_recovery.chat_state import ChatDependencies, configure_chat
 from project_recovery.config import (
     Settings,
@@ -163,7 +168,11 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
                 return response_with_request_headers(_redirect("/login"))
             if current.force_password_change:
                 return response_with_request_headers(_redirect("/password/change"))
-        if request.url.path.startswith("/chat/project/"):
+        feedback_action = (
+            request.method in {"PUT", "DELETE"} and request.url.path.rstrip("/") == "/chat/feedback"
+        )
+        feedback_principal_token: Token[str | None] | None = None
+        if request.url.path.startswith("/chat/project/") or feedback_action:
             current = await application_services.auth.current_user(
                 request.cookies.get(SESSION_COOKIE, "")
             )
@@ -185,6 +194,8 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
                         "Cache-Control": "no-store",
                     },
                 )
+            if feedback_action:
+                feedback_principal_token = bind_feedback_http_principal(str(current.user_id))
         try:
             response = await call_next(request)
         except Exception as error:
@@ -221,6 +232,9 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
                 "request failed correlation_id=%s path=%s", correlation_id, request.url.path
             )
             raise
+        finally:
+            if feedback_principal_token is not None:
+                clear_feedback_http_principal(feedback_principal_token)
         return response_with_request_headers(response)
 
     @app.get("/health/live")
