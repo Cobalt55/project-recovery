@@ -255,3 +255,27 @@ def test_approved_palette_has_visible_focus_and_reduced_motion_rules() -> None:
     assert "prefers-reduced-motion" in css
     assert "--" in css
     assert "#" in css
+
+
+def test_chainlit_shim_covers_native_controls_and_reduces_history_to_one_tab_stop() -> None:
+    """The Chainlit enhancement must provide names without replacing native controls."""
+
+    navigation = (ROOT / "public" / "chat-navigation.js").read_text(encoding="utf-8")
+
+    for control in (
+        "Sidebar",
+        "Search conversations",
+        "New chat",
+        "Attach files",
+        "Chat settings",
+        "Send message",
+        "Account menu",
+    ):
+        assert control in navigation
+    assert 'tabindex", "-1"' in navigation
+    assert 'aria-hidden", "true"' in navigation
+    assert "role=dialog" in navigation
+    assert "aria-describedby" in navigation
+    assert "data-pr-submitting" in navigation
+    assert "data-pr-drawer-open" in navigation
+    assert "data-pr-drawer-close" in navigation

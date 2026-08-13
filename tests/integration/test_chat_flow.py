@@ -99,6 +99,35 @@ def test_chainlit_configuration_is_private_bounded_and_generic() -> None:
         assert forbidden not in combined
 
 
+def test_chainlit_workspace_contract_uses_the_approved_native_shell_hooks() -> None:
+    """The visual shim stays attached to stable Chainlit IDs instead of generated classes."""
+
+    root = Path(__file__).parents[2]
+    config = (root / ".chainlit" / "config.toml").read_text(encoding="utf-8")
+    translations = (root / ".chainlit" / "translations" / "en-US.json").read_text(
+        encoding="utf-8"
+    )
+    stylesheet = (root / "public" / "chat-navigation.css").read_text(encoding="utf-8")
+    navigation = (root / "public" / "chat-navigation.js").read_text(encoding="utf-8")
+
+    assert 'name = "Project Recovery"' in config
+    assert "Ask a grounded question" in translations
+    assert "Project Recovery" in navigation
+    nav_rule = stylesheet.split("#project-recovery-nav", maxsplit=1)[1].split("}", maxsplit=1)[0]
+    assert "bottom:" not in nav_rule
+    assert "#project-recovery-nav" in stylesheet
+    assert "#chat-submit" in navigation
+    assert "#upload-button" in navigation
+    assert "#chat-settings-open-modal" in navigation
+    assert "MutationObserver" in navigation
+    assert "function enhance(root)" in navigation
+    assert "data-pr-enhanced" in navigation
+    assert "data-pr-drawer-open" in navigation
+    assert "data-pr-drawer-close" in navigation
+    assert "Send message" in navigation
+    assert "Stop response" in navigation
+
+
 def test_chainlit_mount_uses_authenticated_callbacks_and_custom_navigation() -> None:
     settings = Settings(
         openai_api_key="sk-test",
