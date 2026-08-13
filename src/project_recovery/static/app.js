@@ -10,6 +10,23 @@ document.documentElement.classList.add("js-ready");
     if (message && !window.confirm(message)) event.preventDefault();
   });
 
+  const copyStatus = document.createElement("p");
+  copyStatus.className = "sr-only";
+  copyStatus.setAttribute("aria-live", "polite");
+  copyStatus.setAttribute("role", "status");
+  document.body.append(copyStatus);
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-copy-value]");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const value = button.dataset.copyValue || "";
+    try {
+      await navigator.clipboard.writeText(value);
+      copyStatus.textContent = "Copied to clipboard.";
+    } catch {
+      copyStatus.textContent = "Copy unavailable. Select the value to copy it.";
+    }
+  });
+
   const opener = document.querySelector("[data-drawer-open]");
   const drawer = document.querySelector("[data-drawer]");
   const backdrop = document.querySelector("[data-drawer-backdrop]");

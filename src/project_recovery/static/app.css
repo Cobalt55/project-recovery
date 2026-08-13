@@ -86,6 +86,11 @@ details summary { color: var(--teal); cursor: pointer; font-weight: 650; }
 .session-details dt, .session-row dt { color: var(--muted); font-size: .875rem; }
 .session-details dd, .session-row dd { margin: 0; overflow-wrap: anywhere; }
 .pagination { display: flex; flex-wrap: wrap; gap: var(--space); margin-top: calc(var(--space) * 3); }
+.copy-button { background: transparent; border: 0; color: var(--teal); min-height: 32px; padding: 2px 0 2px 8px; text-decoration: underline; }
+.record-details { display: grid; gap: var(--space); margin: calc(var(--space) * 2) 0; }
+.record-details div { display: grid; gap: 2px; }
+.record-details dt { color: var(--muted); font-size: .875rem; }
+.record-details dd { margin: 0; overflow-wrap: anywhere; }
 
 .drawer-backdrop { background: rgb(36 49 58 / 45%); inset: 0; position: fixed; z-index: 5; }
 .navigation-drawer { background: var(--panel); box-shadow: 0 10px 30px rgb(36 49 58 / 25%); height: 100vh; left: 0; overflow-y: auto; padding: calc(var(--space) * 3) calc(var(--space) * 2); position: fixed; top: 0; width: min(320px, calc(100vw - 40px)); z-index: 6; }

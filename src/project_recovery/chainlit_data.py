@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import shutil
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID, uuid4
@@ -408,7 +409,13 @@ def _thread_name(conversation: Any) -> str:
     settings = conversation.settings if isinstance(conversation.settings, dict) else {}
     chainlit = settings.get("chainlit") if isinstance(settings.get("chainlit"), dict) else {}
     name = chainlit.get("name") if isinstance(chainlit, dict) else None
-    return str(name or "New chat")[:255]
+    cleaned = str(name or "").strip()
+    if cleaned and cleaned.casefold() != "new chat":
+        return cleaned[:255]
+    created_at = getattr(conversation, "created_at", None)
+    if isinstance(created_at, datetime):
+        return f"Conversation from {created_at.strftime('%Y-%m-%d')}"
+    return "Untitled conversation"
 
 
 def _cursor_offset(cursor: str | None) -> int:

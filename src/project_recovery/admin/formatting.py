@@ -2,7 +2,7 @@
 
 import json
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from project_recovery.repositories._safety import redact_text, sanitize_metadata
@@ -25,4 +25,15 @@ def timestamp(value: Any) -> str:
     return value.isoformat() if isinstance(value, datetime) else ""
 
 
-__all__ = ["safe_json", "safe_text", "timestamp"]
+def format_timestamp(value: Any) -> dict[str, str]:
+    """Provide a compact UTC label while retaining an exact machine-readable timestamp."""
+    exact = timestamp(value)
+    if not isinstance(value, datetime):
+        return {"exact": "", "display": "Not recorded"}
+    return {
+        "exact": exact,
+        "display": value.astimezone(UTC).strftime("%b %d, %Y %H:%M UTC"),
+    }
+
+
+__all__ = ["format_timestamp", "safe_json", "safe_text", "timestamp"]

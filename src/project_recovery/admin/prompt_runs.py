@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 from typing import Any
 
-from project_recovery.admin.formatting import safe_text, timestamp
+from project_recovery.admin.formatting import format_timestamp, safe_text
 
 
 def prompt_run_rows(records: Iterable[Any]) -> list[dict[str, object]]:
@@ -22,7 +22,7 @@ def prompt_run_rows(records: Iterable[Any]) -> list[dict[str, object]]:
             "latency_ms": record.latency_ms,
             "total_tokens": record.total_tokens,
             "estimated_cost": record.estimated_cost,
-            "started_at": timestamp(record.started_at),
+            "started_at": format_timestamp(record.started_at),
         }
         for record in records
     ]

@@ -547,9 +547,10 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             return current
         if application_services.telemetry is None:
             return Response(status_code=503)
-        page_size = min(max(limit, 1), 50)
+        page_size = min(max(limit, 25), 100)
+        page_offset = max(offset, 0)
         records = list(
-            await application_services.telemetry.list_prompt_runs(max(offset, 0), page_size + 1)
+            await application_services.telemetry.list_prompt_runs(page_offset, page_size + 1)
         )
         return templates.TemplateResponse(
             request,
@@ -559,7 +560,9 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
                 current,
                 rows=prompt_run_rows(records[:page_size]),
                 has_next=len(records) > page_size,
-                next_offset=max(offset, 0) + page_size,
+                offset=page_offset,
+                next_offset=page_offset + page_size,
+                previous_offset=max(page_offset - page_size, 0) if page_offset else None,
                 limit=page_size,
             ),
         )
@@ -643,9 +646,10 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             return current
         if application_services.telemetry is None:
             return Response(status_code=503)
-        page_size = min(max(limit, 1), 50)
+        page_size = min(max(limit, 25), 100)
+        page_offset = max(offset, 0)
         records = list(
-            await application_services.telemetry.list_tool_runs(max(offset, 0), page_size + 1)
+            await application_services.telemetry.list_tool_runs(page_offset, page_size + 1)
         )
         return templates.TemplateResponse(
             request,
@@ -655,7 +659,9 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
                 current,
                 rows=tool_run_rows(records[:page_size]),
                 has_next=len(records) > page_size,
-                next_offset=max(offset, 0) + page_size,
+                offset=page_offset,
+                next_offset=page_offset + page_size,
+                previous_offset=max(page_offset - page_size, 0) if page_offset else None,
                 limit=page_size,
             ),
         )

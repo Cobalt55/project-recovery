@@ -219,6 +219,24 @@ def test_all_telemetry_pages_are_admin_only_bounded_and_redacted() -> None:
     assert client.get("/admin/prompt-runs/export").status_code in {404, 422}
 
 
+def test_activity_pages_keep_exact_timestamps_and_support_bounded_navigation() -> None:
+    """Operational records stay compact while exact identifiers remain available on demand."""
+
+    client, telemetry, _ = _client()
+    client.cookies.set("project_recovery_session", "admin")
+
+    prompt_response = client.get("/admin/prompt-runs?offset=100&limit=100")
+    tool_response = client.get("/admin/tool-use?offset=100&limit=100")
+
+    assert prompt_response.status_code == tool_response.status_code == 200
+    for content in (prompt_response.text, tool_response.text):
+        assert '<time datetime="2026-08-12T00:00:00+00:00">' in content
+        assert 'data-copy-value="trace-safe"' in content
+        assert "Previous" in content
+        assert "limit=100" in content
+    assert telemetry.limits[-2:] == [101, 101]
+
+
 def test_unhandled_exception_is_recorded_without_leaking_the_api_key() -> None:
     client, telemetry, _ = _client()
 

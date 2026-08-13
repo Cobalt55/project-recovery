@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 from typing import Any
 
-from project_recovery.admin.formatting import safe_json, safe_text, timestamp
+from project_recovery.admin.formatting import format_timestamp, safe_json, safe_text
 
 
 def tool_run_rows(records: Iterable[Any]) -> list[dict[str, object]]:
@@ -20,7 +20,7 @@ def tool_run_rows(records: Iterable[Any]) -> list[dict[str, object]]:
             "summary": safe_text(record.result_summary, 2_000),
             "arguments": safe_json(record.arguments),
             "output": safe_json(record.output),
-            "created_at": timestamp(record.created_at),
+            "created_at": format_timestamp(record.created_at),
         }
         for record in records
     ]

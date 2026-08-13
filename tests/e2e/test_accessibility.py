@@ -477,3 +477,43 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
         page.keyboard.press("Tab")
         assert page.locator("#main-after").evaluate("element => document.activeElement === element")
         browser.close()
+
+
+def test_chainlit_submit_guard_blocks_a_replaced_stop_only_during_transition() -> None:
+    """A second rapid activation must not turn a just-sent message into cancellation."""
+
+    navigation = (ROOT / "public" / "chat-navigation.js").read_text(encoding="utf-8")
+    markup = '<button id="chat-submit" type="button">Send</button>'
+
+    with sync_playwright() as browser_driver:
+        browser = browser_driver.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(markup)
+        page.evaluate(
+            """() => {
+                window.fetch = async () => ({ ok: true, json: async () => ({ items: [] }) });
+                window.sendEvents = 0;
+                window.stopEvents = 0;
+                document.querySelector('#chat-submit').addEventListener('click', (event) => {
+                  if (event.defaultPrevented) return;
+                  window.sendEvents += 1;
+                  event.currentTarget.outerHTML = [
+                    '<button id="stop-button" type="button">Stop</button>',
+                  ].join('');
+                  document.querySelector('#stop-button').addEventListener('click', (stopEvent) => {
+                    if (!stopEvent.defaultPrevented) window.stopEvents += 1;
+                  });
+                });
+            }"""
+        )
+        page.add_script_tag(content=navigation)
+
+        page.locator("#chat-submit").click()
+        page.locator("#stop-button").click()
+        assert page.evaluate("window.sendEvents") == 1
+        assert page.evaluate("window.stopEvents") == 0
+
+        page.wait_for_timeout(950)
+        page.locator("#stop-button").click()
+        assert page.evaluate("window.stopEvents") == 1
+        browser.close()

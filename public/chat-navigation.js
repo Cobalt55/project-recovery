@@ -18,6 +18,8 @@
     "[data-testid='user-menu']": "Account menu",
   };
   const mobileQuery = window.matchMedia("(max-width: 900px)");
+  const SUBMIT_TRANSITION_MS = 900;
+  let suppressStopUntil = 0;
 
   const isMobile = () => mobileQuery.matches;
   const matching = (root, selector) => {
@@ -157,11 +159,12 @@
           submit.dataset.prSubmitting = "true";
           submit.setAttribute("data-pr-submitting", "true");
           submit.setAttribute("aria-label", "Sending message");
+          suppressStopUntil = Date.now() + SUBMIT_TRANSITION_MS;
           window.setTimeout(() => {
             delete submit.dataset.prSubmitting;
             submit.removeAttribute("data-pr-submitting");
             if (document.contains(submit)) submit.setAttribute("aria-label", "Send message");
-          }, 900);
+          }, SUBMIT_TRANSITION_MS);
         },
         true,
       );
@@ -221,6 +224,17 @@
       childList: true,
       subtree: true,
     });
+    document.addEventListener(
+      "click",
+      (event) => {
+        const target = event.target;
+        const stop = target instanceof Element ? target.closest("#stop-button") : null;
+        if (!stop || Date.now() >= suppressStopUntil) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      },
+      true,
+    );
     document.addEventListener("keydown", (event) => {
       const nav = document.getElementById(NAV_ID);
       if (

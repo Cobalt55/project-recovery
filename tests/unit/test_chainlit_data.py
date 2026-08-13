@@ -235,6 +235,19 @@ async def test_http_history_uses_the_authenticated_filter_without_a_websocket_pr
 
 
 @pytest.mark.asyncio
+async def test_untitled_history_uses_a_stable_fallback_name(tmp_path: Path) -> None:
+    """Blank generated names should not make a history sidebar look like repeated new chats."""
+
+    layer, chats = _layer(tmp_path)
+    chats.conversation.settings["chainlit"]["name"] = "   "
+
+    thread = await layer.get_thread("thread-1")
+
+    assert thread is not None
+    assert thread["name"] == "Conversation from 2026-08-12"
+
+
+@pytest.mark.asyncio
 async def test_steps_elements_and_feedback_use_application_records(tmp_path: Path) -> None:
     layer, chats = _layer(tmp_path)
     await layer.create_step.__wrapped__(
