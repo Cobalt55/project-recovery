@@ -6,6 +6,8 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
+from starlette.responses import Response
 
 import project_recovery.chat_app as chat_app
 from project_recovery.agent_runtime import AgentEvent
@@ -17,6 +19,52 @@ from project_recovery.chat_app import (
 )
 from project_recovery.chat_state import ChatDependencies, configure_chat
 from project_recovery.config import Settings
+
+
+def make_request(cookie: str) -> Request:
+    return Request({"type": "http", "headers": [(b"cookie", cookie.encode())]})
+
+
+def assert_cookie_deleted(set_cookie: list[str], name: str) -> None:
+    assert any(
+        header.startswith(f"{name}=") and "Max-Age=0" in header for header in set_cookie
+    )
+
+
+@pytest.mark.asyncio
+async def test_chainlit_logout_revokes_application_session_and_clears_all_auth_cookies() -> None:
+    """Removing callback logout or a cookie deletion must leave a live credential behind."""
+
+    class FakeAuth:
+        def __init__(self) -> None:
+            self.logged_out: list[str] = []
+
+        async def logout(self, token: str) -> None:
+            self.logged_out.append(token)
+
+    auth = FakeAuth()
+    configure_chat(
+        ChatDependencies(
+            auth=auth,
+            users=SimpleNamespace(),
+            chats=SimpleNamespace(),
+            runtime=SimpleNamespace(),
+            attachment_root=Path("uploads"),
+        )
+    )
+    request = make_request(
+        "project_recovery_session=active-token; "
+        "project_recovery_csrf=csrf-token; access_token=jwt"
+    )
+    response = Response()
+
+    await chat_app.on_logout(request, response)
+
+    assert auth.logged_out == ["active-token"]
+    set_cookie = response.headers.getlist("set-cookie")
+    assert_cookie_deleted(set_cookie, "project_recovery_session")
+    assert_cookie_deleted(set_cookie, "project_recovery_csrf")
+    assert_cookie_deleted(set_cookie, "access_token")
 
 
 def test_chat_settings_expose_only_the_approved_policy() -> None:

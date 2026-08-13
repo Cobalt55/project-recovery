@@ -13,8 +13,11 @@ from chainlit.input_widget import Select
 from chainlit.types import ThreadDict
 from chainlit.user import User as ChainlitUser
 from starlette.datastructures import Headers
+from starlette.requests import Request
+from starlette.responses import Response
 
 from project_recovery.agent_runtime import AgentEvent
+from project_recovery.auth.cookies import SESSION_COOKIE, clear_login_cookies
 from project_recovery.chainlit_data import ChainlitDataLayer
 from project_recovery.chat_state import get_chat_dependencies
 from project_recovery.config import (
@@ -26,9 +29,6 @@ from project_recovery.config import (
 
 MODEL_WIDGET_ID = "Model"
 REASONING_WIDGET_ID = "Reasoning"
-SESSION_COOKIE = "project_recovery_session"
-
-
 def validate_chat_settings(values: dict[str, Any]) -> tuple[ModelId, ReasoningEffort] | None:
     """Normalize only the approved model and reasoning policy."""
     model = values.get(MODEL_WIDGET_ID)
@@ -108,6 +108,15 @@ async def authenticate_header(headers: Headers) -> ChainlitUser | None:
         return None
     user = await dependencies.users.get(current.user_id)
     return _chainlit_user(user) if user is not None and user.is_active else None
+
+
+@cl.on_logout
+async def on_logout(request: Request, response: Response) -> None:
+    """Revoke the workspace login when Chainlit initiates a logout."""
+    token = request.cookies.get(SESSION_COOKIE, "")
+    if token:
+        await get_chat_dependencies().auth.logout(token)
+    clear_login_cookies(response, request)
 
 
 async def _revalidate_authentication() -> UUID:
@@ -282,6 +291,7 @@ __all__ = [
     "MODEL_WIDGET_ID",
     "REASONING_WIDGET_ID",
     "authenticate_header",
+    "on_logout",
     "on_chat_resume",
     "on_chat_start",
     "on_message",

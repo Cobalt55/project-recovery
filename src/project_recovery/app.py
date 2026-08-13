@@ -9,9 +9,7 @@ from pathlib import Path
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from chainlit.auth import create_jwt
 from chainlit.auth.jwt import decode_jwt
-from chainlit.user import User as ChainlitUser
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +27,13 @@ from project_recovery.admin.shell import AppServices, navigation_items
 from project_recovery.admin.tool_use import tool_run_rows
 from project_recovery.admin.users import UserManagementService
 from project_recovery.agent_runtime import AgentRuntime
+from project_recovery.auth.cookies import (
+    CHAINLIT_COOKIE_PREFIX,
+    CSRF_COOKIE,
+    SESSION_COOKIE,
+    clear_login_cookies,
+    set_login_cookies,
+)
 from project_recovery.auth.passwords import PasswordService
 from project_recovery.auth.rate_limit import LoginRateLimiter
 from project_recovery.auth.sessions import AuthService, CurrentUser
@@ -47,11 +52,6 @@ from project_recovery.repositories.users import UserRepository
 
 LOGGER = logging.getLogger(__name__)
 PACKAGE_ROOT = Path(__file__).parent
-SESSION_COOKIE = "project_recovery_session"
-CSRF_COOKIE = "project_recovery_csrf"
-CHAINLIT_COOKIE_PREFIX = "access_token"
-
-
 def _services(settings: Settings) -> AppServices:
     database = Database(settings.database_url)
     passwords = PasswordService()
@@ -118,46 +118,6 @@ async def _current_user(
 
 async def _csrf_valid(request: Request, services: AppServices, csrf_token: str) -> bool:
     return await services.auth.validate_csrf(request.cookies.get(SESSION_COOKIE, ""), csrf_token)
-
-
-def _set_login_cookies(
-    response: Response,
-    session_token: str,
-    csrf_token: str,
-    current: CurrentUser,
-    settings: Settings,
-) -> None:
-    secure = settings.environment.casefold() == "production"
-    response.set_cookie(
-        SESSION_COOKIE, session_token, httponly=True, samesite="lax", secure=secure, path="/"
-    )
-    response.set_cookie(
-        CSRF_COOKIE, csrf_token, httponly=False, samesite="lax", secure=secure, path="/"
-    )
-    response.set_cookie(
-        CHAINLIT_COOKIE_PREFIX,
-        create_jwt(
-            ChainlitUser(
-                identifier=str(current.user_id),
-                display_name=current.email,
-                metadata={"roles": list(current.roles)},
-            )
-        ),
-        httponly=True,
-        samesite="lax",
-        secure=secure,
-        path="/",
-        max_age=12 * 60 * 60,
-    )
-
-
-def _clear_login_cookies(response: Response, request: Request) -> None:
-    """Clear application and mounted-Chainlit credentials together."""
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(CSRF_COOKIE, path="/")
-    for name in request.cookies:
-        if name == CHAINLIT_COOKIE_PREFIX or name.startswith(f"{CHAINLIT_COOKIE_PREFIX}_"):
-            response.delete_cookie(name, path="/")
 
 
 def create_app(settings: Settings | None = None, services: AppServices | None = None) -> FastAPI:
@@ -316,7 +276,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             await application_services.auth.logout(result.session_token)
             return Response(status_code=401)
         response = _redirect("/password/change" if current.force_password_change else "/chat")
-        _set_login_cookies(
+        set_login_cookies(
             response,
             result.session_token,
             result.csrf_token,
@@ -333,7 +293,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
             return Response(status_code=403)
         await application_services.auth.logout(request.cookies.get(SESSION_COOKIE, ""))
         response = _redirect("/login")
-        _clear_login_cookies(response, request)
+        clear_login_cookies(response, request)
         return response
 
     @app.get("/password/change", response_class=HTMLResponse)
@@ -364,7 +324,7 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
         ):
             return Response("Unable to update your password.", status_code=400)
         response = _redirect("/login")
-        _clear_login_cookies(response, request)
+        clear_login_cookies(response, request)
         return response
 
     @app.get("/settings", response_class=HTMLResponse)

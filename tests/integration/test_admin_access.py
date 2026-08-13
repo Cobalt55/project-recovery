@@ -3,14 +3,17 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from project_recovery.admin.shell import AppServices
 from project_recovery.app import create_app
 from project_recovery.auth.sessions import CurrentUser, LoginResult
+from project_recovery.chat_state import ChatDependencies
 from project_recovery.config import Settings
 
 
@@ -267,6 +270,46 @@ def test_chainlit_history_http_requires_a_live_application_session() -> None:
 
     assert live.status_code != 401
     assert revoked.status_code == 401
+
+
+def test_chainlit_logout_revokes_the_browser_session_across_workspace_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Skipping Chainlit logout must not leave HTML or project endpoints authenticated."""
+    from chainlit.server import app as chainlit_server
+
+    monkeypatch.setattr(chainlit_server, "middleware_stack", None)
+    auth = FakeAuth()
+    users = FakeUsers(auth)
+    services = AppServices(
+        database=FakeDatabase(),
+        auth=auth,
+        users=users,
+        chat=ChatDependencies(
+            auth=auth,
+            users=users,
+            chats=SimpleNamespace(),
+            runtime=SimpleNamespace(),
+            attachment_root=Path("uploads"),
+        ),
+    )
+    client = TestClient(create_app(_settings(), services), follow_redirects=False)
+    _login(client, "admin@example.test")
+
+    logout = client.post("/chat/logout")
+    settings = client.get("/settings")
+    logins = client.get("/admin/logins")
+    threads = client.post(
+        "/chat/project/threads",
+        json={"pagination": {"first": 10}, "filter": {}},
+    )
+
+    assert logout.status_code == 200
+    assert settings.status_code == 303
+    assert settings.headers["location"] == "/login"
+    assert logins.status_code == 303
+    assert logins.headers["location"] == "/login"
+    assert threads.status_code == 401
 
 
 def test_admin_user_actions_and_login_table_keep_secrets_out_of_html() -> None:
