@@ -78,7 +78,8 @@ if ([string]::IsNullOrWhiteSpace($credentialLine)) {
 }
 $email, $password = $credentialLine -split ':\s+', 2
 $login = Invoke-NoRedirectWebRequest -Uri "$baseUri/login" -Method Post -Body @{ email = $email; password = $password }
-if ($login.StatusCode -ne 303 -or $login.Headers.Location -notmatch '^/password/change$') {
-    throw "Production login did not require the initial password change."
+$acceptedLoginDestinations = @("/password/change", "/chat")
+if ($login.StatusCode -ne 303 -or $login.Headers.Location -notin $acceptedLoginDestinations) {
+    throw "Production authenticated login smoke test failed."
 }
-Write-Output "Production health and forced-password-change login smoke test passed."
+Write-Output "Production health and authenticated login smoke test passed."

@@ -249,6 +249,26 @@ def test_application_login_also_establishes_the_chainlit_session() -> None:
     assert "access_token" in client.cookies
 
 
+def test_chainlit_history_http_requires_a_live_application_session() -> None:
+    """A stale Chainlit JWT cannot outlive logout or explicit session revocation."""
+    client, auth, _ = _client()
+    _login(client, "admin@example.test")
+
+    live = client.post(
+        "/chat/project/threads",
+        json={"pagination": {"first": 10}, "filter": {}},
+    )
+    assert client.cookies.get("project_recovery_session") is not None
+    auth.sessions.clear()
+    revoked = client.post(
+        "/chat/project/threads",
+        json={"pagination": {"first": 10}, "filter": {}},
+    )
+
+    assert live.status_code != 401
+    assert revoked.status_code == 401
+
+
 def test_admin_user_actions_and_login_table_keep_secrets_out_of_html() -> None:
     """Missing admin CSRF enforcement or token exposure must fail this observable boundary."""
     client, _, users = _client()

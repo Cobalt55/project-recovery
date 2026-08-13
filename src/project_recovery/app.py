@@ -10,6 +10,7 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 from chainlit.auth import create_jwt
+from chainlit.auth.jwt import decode_jwt
 from chainlit.user import User as ChainlitUser
 from fastapi import BackgroundTasks, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -186,6 +187,28 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     async def sanitize_unhandled_exceptions(request: Request, call_next):  # type: ignore[no-untyped-def]
         correlation_id = uuid4().hex
         request.state.correlation_id = correlation_id
+        if request.url.path.startswith("/chat/project/"):
+            current = await application_services.auth.current_user(
+                request.cookies.get(SESSION_COOKIE, "")
+            )
+            try:
+                chainlit_user = decode_jwt(request.cookies.get(CHAINLIT_COOKIE_PREFIX, ""))
+            except Exception:
+                chainlit_user = None
+            if (
+                current is None
+                or current.force_password_change
+                or chainlit_user is None
+                or chainlit_user.identifier != str(current.user_id)
+            ):
+                return JSONResponse(
+                    {"detail": "Unauthorized"},
+                    status_code=401,
+                    headers={
+                        "X-Correlation-ID": correlation_id,
+                        "Cache-Control": "no-store",
+                    },
+                )
         try:
             response = await call_next(request)
         except Exception as error:

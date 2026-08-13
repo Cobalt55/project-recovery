@@ -328,6 +328,15 @@ def test_smoke_check_recovers_expected_no_redirect_responses() -> None:
     assert "-SessionVariable" not in smoke
 
 
+def test_login_smoke_accepts_first_run_and_idempotent_rerun_destinations() -> None:
+    """A changed bootstrap password must still support safe deployment reruns."""
+
+    smoke = (ROOT / "scripts" / "azure" / "smoke.ps1").read_text(encoding="utf-8")
+
+    assert '@("/password/change", "/chat")' in smoke
+    assert "$login.Headers.Location -notin $acceptedLoginDestinations" in smoke
+
+
 def test_app_service_plan_uses_the_requested_location_explicitly() -> None:
     """The plan must not silently inherit a differently located resource group."""
 
