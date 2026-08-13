@@ -23,7 +23,7 @@ body { margin: 0; min-width: 0; background: var(--canvas); }
 body.drawer-open { overflow: hidden; }
 a { color: inherit; }
 button, input, select { font: inherit; }
-button, select, input { min-height: 40px; border-radius: 6px; }
+button, select, input { min-height: 44px; border-radius: 6px; }
 input, select { width: 100%; border: 1px solid #8b969b; background: var(--panel); padding: 8px 10px; color: var(--ink); }
 button { cursor: pointer; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -36,7 +36,7 @@ button { cursor: pointer; }
 .navigation-list { list-style: none; margin: 0; padding: 0; }
 .navigation-group { border-top: 1px solid var(--line); margin-top: calc(var(--space) * 3); padding-top: calc(var(--space) * 2); }
 .navigation-group h2 { color: var(--muted); font-size: .875rem; margin: 0 0 var(--space); }
-.nav-link { display: block; border-radius: 6px; margin: 2px 0; min-height: 40px; padding: 9px 10px; text-decoration: none; }
+.nav-link { display: block; border-radius: 6px; margin: 2px 0; min-height: 44px; padding: 9px 10px; text-decoration: none; }
 .nav-link:hover { background: #e5e1de; }
 .nav-link.is-active { background: #e7dce2; color: #54213c; font-weight: 700; }
 .workspace, main { min-width: 0; }
@@ -52,7 +52,7 @@ main { max-width: 1200px; padding: calc(var(--space) * 5) calc(var(--space) * 4)
 .section-block h2 { font-size: 1.1rem; margin: 0 0 calc(var(--space) * 2); }
 .stack { display: grid; gap: calc(var(--space) * 2); max-width: 520px; }
 .stack label, .form-row label { display: grid; gap: 5px; font-weight: 600; }
-.button { background: var(--plum); border: 1px solid var(--plum); color: #fff; min-height: 40px; padding: 8px 14px; }
+.button { background: var(--plum); border: 1px solid var(--plum); color: #fff; min-height: 44px; padding: 8px 14px; }
 .button:hover { background: var(--plum-hover); }
 .button-quiet { background: var(--panel); border-color: #77838a; color: var(--ink); }
 .form-row { align-items: end; display: flex; flex-wrap: wrap; gap: calc(var(--space) * 2); }
