@@ -130,7 +130,7 @@ def test_chainlit_workspace_contract_uses_the_approved_native_shell_hooks() -> N
 
 
 def test_chainlit_empty_chat_uses_the_project_recovery_identity_asset() -> None:
-    """A default Chainlit wordmark in the empty workspace is a visible product-identity regression."""
+    """A default Chainlit wordmark in the empty workspace is a visible identity regression."""
     root = Path(__file__).parents[2]
     logo = root / "public" / "logo_light.svg"
 

@@ -175,7 +175,9 @@
     improveDialogs(root);
     protectSubmit(root);
     matching(root, "#stop-button").forEach((stop) => {
-      stop.setAttribute("aria-label", "Stop response");
+      if (stop.getAttribute("aria-label") !== "Stop response") {
+        stop.setAttribute("aria-label", "Stop response");
+      }
       stop.dataset.prEnhanced = "true";
       stop.setAttribute("data-pr-enhanced", "true");
     });

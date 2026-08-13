@@ -397,9 +397,37 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
             }"""
         )
         page.wait_for_function(
-            """() => document.querySelector('#upload-button')?.getAttribute('aria-label') === 'Attach files'"""
+            """() => {
+                const upload = document.querySelector('#upload-button');
+                return upload?.getAttribute('aria-label') === 'Attach files';
+            }"""
         )
         assert page.locator("#upload-button").get_attribute("role") is None
+
+        stop_result = page.locator("#stop-button").evaluate(
+            """async (element) => {
+                let mutations = 0;
+                const observer = new MutationObserver((records) => {
+                    mutations += records.length;
+                });
+                observer.observe(element, { attributes: true, attributeFilter: ['aria-label'] });
+                window.stopLabelTimerCompleted = false;
+                window.setTimeout(() => { window.stopLabelTimerCompleted = true; }, 0);
+                element.setAttribute('aria-label', 'Send message');
+                await new Promise((resolve) => window.setTimeout(resolve, 25));
+                observer.disconnect();
+                return {
+                    mutations,
+                    label: element.getAttribute('aria-label'),
+                    timerCompleted: window.stopLabelTimerCompleted,
+                };
+            }"""
+        )
+        assert stop_result == {
+            "mutations": 2,
+            "label": "Stop response",
+            "timerCompleted": True,
+        }
 
         submit = page.locator("#chat-submit")
         submit.click()

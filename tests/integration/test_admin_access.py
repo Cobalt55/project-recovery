@@ -225,6 +225,8 @@ def test_anonymous_chat_shell_redirects_to_login_before_chainlit_can_render() ->
 
     assert chat.status_code == 303
     assert chat.headers["location"] == "/login"
+    assert chat.headers["cache-control"] == "no-store"
+    assert chat.headers["x-correlation-id"]
 
 
 def test_repeated_login_failures_are_throttled_before_more_password_work() -> None:
