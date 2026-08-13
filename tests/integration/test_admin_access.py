@@ -217,6 +217,16 @@ def test_anonymous_requests_redirect_to_login_and_health_is_sanitized() -> None:
     assert ready.headers["cache-control"] == "no-store"
 
 
+def test_anonymous_chat_shell_redirects_to_login_before_chainlit_can_render() -> None:
+    """The visible Chat shell is a protected workspace entry point, not a public error shell."""
+    client, _, _ = _client()
+
+    chat = client.get("/chat/")
+
+    assert chat.status_code == 303
+    assert chat.headers["location"] == "/login"
+
+
 def test_repeated_login_failures_are_throttled_before_more_password_work() -> None:
     """The public login boundary limits normalized-account guessing."""
     client, _, _ = _client()

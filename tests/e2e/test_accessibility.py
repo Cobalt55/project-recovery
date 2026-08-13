@@ -266,6 +266,9 @@ def test_chainlit_shim_covers_native_controls_and_reduces_history_to_one_tab_sto
     navigation = (ROOT / "public" / "chat-navigation.js").read_text(encoding="utf-8")
 
     for control in (
+        "#sidebar-trigger-button",
+        "#search-chats-button",
+        "#new-chat-button",
         "Sidebar",
         "Search conversations",
         "New chat",
@@ -282,6 +285,19 @@ def test_chainlit_shim_covers_native_controls_and_reduces_history_to_one_tab_sto
     assert "data-pr-submitting" in navigation
     assert "data-pr-drawer-open" in navigation
     assert "data-pr-drawer-close" in navigation
+
+
+def test_chainlit_workspace_shim_targets_current_native_icon_control_ids() -> None:
+    """A Chainlit ID drift must not silently reintroduce unnamed Chat icon controls."""
+    navigation = (ROOT / "public" / "chat-navigation.js").read_text(encoding="utf-8")
+
+    for selector in (
+        "#sidebar-trigger-button",
+        "#search-chats-button",
+        "#new-chat-button",
+        "#user-nav-button",
+    ):
+        assert selector in navigation
 
 
 def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls() -> None:
@@ -373,6 +389,17 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
                 )
                 >= 44
             )
+
+        page.locator("#upload-button").evaluate(
+            """element => {
+                element.removeAttribute('aria-label');
+                element.setAttribute('role', 'presentation');
+            }"""
+        )
+        page.wait_for_function(
+            """() => document.querySelector('#upload-button')?.getAttribute('aria-label') === 'Attach files'"""
+        )
+        assert page.locator("#upload-button").get_attribute("role") is None
 
         submit = page.locator("#chat-submit")
         submit.click()

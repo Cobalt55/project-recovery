@@ -129,6 +129,15 @@ def test_chainlit_workspace_contract_uses_the_approved_native_shell_hooks() -> N
     assert '"stop": "Stop response"' in translations
 
 
+def test_chainlit_empty_chat_uses_the_project_recovery_identity_asset() -> None:
+    """A default Chainlit wordmark in the empty workspace is a visible product-identity regression."""
+    root = Path(__file__).parents[2]
+    logo = root / "public" / "logo_light.svg"
+
+    assert logo.is_file()
+    assert "Project Recovery" in logo.read_text(encoding="utf-8")
+
+
 def test_chainlit_mount_uses_authenticated_callbacks_and_custom_navigation() -> None:
     settings = Settings(
         openai_api_key="sk-test",

@@ -3,6 +3,9 @@
   const TOGGLE_ID = "project-recovery-nav-toggle";
   const BACKDROP_ID = "project-recovery-nav-backdrop";
   const CONTROL_LABELS = {
+    "#sidebar-trigger-button": "Open conversation history",
+    "#search-chats-button": "Search conversations",
+    "#new-chat-button": "New chat",
     "#sidebar-open": "Sidebar",
     "#sidebar-close": "Close sidebar",
     "#thread-search": "Search conversations",
@@ -11,6 +14,7 @@
     "#chat-settings-open-modal": "Chat settings",
     "#chat-submit": "Send message",
     "#stop-button": "Stop response",
+    "#user-nav-button": "Account menu",
     "[data-testid='user-menu']": "Account menu",
   };
   const mobileQuery = window.matchMedia("(max-width: 900px)");
@@ -100,6 +104,7 @@
     for (const [selector, label] of Object.entries(CONTROL_LABELS)) {
       matching(root, selector).forEach((control) => {
         if (!control.getAttribute("aria-label")) control.setAttribute("aria-label", label);
+        if (control.getAttribute("role") === "presentation") control.removeAttribute("role");
         control.dataset.prEnhanced = "true";
         control.setAttribute("data-pr-enhanced", "true");
       });
@@ -200,9 +205,20 @@
     load();
     enhance(document);
     const observer = new MutationObserver((records) => {
-      records.forEach((record) => record.addedNodes.forEach(enhance));
+      records.forEach((record) => {
+        if (record.type === "attributes" && record.target instanceof Element) {
+          enhance(record.target);
+          return;
+        }
+        record.addedNodes.forEach(enhance);
+      });
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["aria-label", "role"],
+      childList: true,
+      subtree: true,
+    });
     document.addEventListener("keydown", (event) => {
       const nav = document.getElementById(NAV_ID);
       if (

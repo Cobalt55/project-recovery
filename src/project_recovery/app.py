@@ -149,6 +149,14 @@ def create_app(settings: Settings | None = None, services: AppServices | None = 
     async def sanitize_unhandled_exceptions(request: Request, call_next):  # type: ignore[no-untyped-def]
         correlation_id = uuid4().hex
         request.state.correlation_id = correlation_id
+        if request.method == "GET" and request.url.path.rstrip("/") == "/chat":
+            current = await application_services.auth.current_user(
+                request.cookies.get(SESSION_COOKIE, "")
+            )
+            if current is None:
+                return _redirect("/login")
+            if current.force_password_change:
+                return _redirect("/password/change")
         if request.url.path.startswith("/chat/project/"):
             current = await application_services.auth.current_user(
                 request.cookies.get(SESSION_COOKIE, "")

@@ -89,12 +89,16 @@ body {
 
 #sidebar-open,
 #sidebar-close,
+#sidebar-trigger-button,
+#search-chats-button,
+#new-chat-button,
 #thread-search,
 #new-chat,
 #upload-button,
 #chat-settings-open-modal,
 #chat-submit,
 #stop-button,
+#user-nav-button,
 [data-testid="user-menu"] {
   min-height: 44px;
   min-width: 44px;
