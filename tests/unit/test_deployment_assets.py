@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -12,6 +14,68 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
+
+
+def _workflow_run_commands(workflow_path: Path) -> list[str]:
+    """Return executable shell commands from YAML ``run`` steps in file order."""
+
+    lines = workflow_path.read_text(encoding="utf-8").splitlines()
+    commands: list[str] = []
+    index = 0
+    while index < len(lines):
+        steps_match = re.match(r"^(?P<indent>\s*)steps:\s*$", lines[index])
+        if steps_match is None:
+            index += 1
+            continue
+
+        steps_indent = len(steps_match.group("indent"))
+        step_indent = steps_indent + 2
+        index += 1
+        while index < len(lines):
+            line = lines[index]
+            stripped = line.strip()
+            indent = len(line) - len(line.lstrip())
+            if stripped and indent <= steps_indent:
+                break
+            if indent != step_indent or not line.lstrip().startswith("- "):
+                index += 1
+                continue
+
+            step_end = index + 1
+            while step_end < len(lines):
+                next_line = lines[step_end]
+                next_stripped = next_line.strip()
+                next_indent = len(next_line) - len(next_line.lstrip())
+                if next_stripped and next_indent <= steps_indent:
+                    break
+                if next_indent == step_indent and next_line.lstrip().startswith("- "):
+                    break
+                step_end += 1
+
+            for step_line_index in range(index, step_end):
+                step_line = lines[step_line_index]
+                run_match = re.match(
+                    rf"^\s{{{step_indent}}}-\s+run:\s*(?P<value>.*)$", step_line
+                ) or re.match(rf"^\s{{{step_indent + 2}}}run:\s*(?P<value>.*)$", step_line)
+                if run_match is None:
+                    continue
+                value = run_match.group("value").strip()
+                if value not in {"|", "|-", ">", ">-"}:
+                    if value and not value.startswith("#"):
+                        commands.append(value)
+                    break
+                run_indent = len(step_line) - len(step_line.lstrip())
+                for command_line in lines[step_line_index + 1 : step_end]:
+                    command = command_line.strip()
+                    command_indent = len(command_line) - len(command_line.lstrip())
+                    if command and command_indent <= run_indent:
+                        break
+                    if command and not command.startswith("#"):
+                        commands.append(command)
+                break
+            index = step_end
+
+    return commands
 
 
 def _run_plan(script_name: str) -> str:
@@ -144,19 +208,25 @@ def test_startup_validation_confirms_migrations_precede_the_server() -> None:
 def test_workflows_use_oidc_and_the_deployment_workflow_checks_health() -> None:
     """Catch workflow regressions to quality gates, OIDC, or blind deployment."""
 
-    deploy = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
-    tests = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
-
-    required_quality_gates = (
+    deploy_path = ROOT / ".github" / "workflows" / "deploy.yml"
+    test_path = ROOT / ".github" / "workflows" / "test.yml"
+    deploy = deploy_path.read_text(encoding="utf-8")
+    expected_quality_gates = [
         "pytest -q",
         "ruff check src tests",
         "ruff format --check src tests scripts",
         "mypy src",
         "python -m build",
+    ]
+
+    test_commands = _workflow_run_commands(test_path)
+    deploy_commands = _workflow_run_commands(deploy_path)
+    assert [command for command in test_commands if command in expected_quality_gates] == (
+        expected_quality_gates
     )
-    for workflow in (tests, deploy):
-        for gate in required_quality_gates:
-            assert gate in workflow
+    assert [command for command in deploy_commands if command in expected_quality_gates] == (
+        expected_quality_gates
+    )
 
     assert "id-token: write" in deploy
     assert "azure/login@v2" in deploy
@@ -164,6 +234,15 @@ def test_workflows_use_oidc_and_the_deployment_workflow_checks_health() -> None:
     assert "app-name: ${{ vars.AZURE_WEBAPP_NAME }}" in deploy
     assert "package: ." in deploy
     assert "health/ready" in deploy
+
+
+def test_clean_runner_install_includes_the_build_frontend() -> None:
+    """A clean runner installing ``.[dev]`` must be able to execute ``python -m build``."""
+
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dev_dependencies = pyproject["project"]["optional-dependencies"]["dev"]
+
+    assert any(re.match(r"^build(?:[<>=!~].*)?$", dependency) for dependency in dev_dependencies)
 
 
 def test_deployment_uses_private_postgres_networking_and_packages_web_assets() -> None:
