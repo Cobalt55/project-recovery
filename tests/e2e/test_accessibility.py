@@ -519,6 +519,51 @@ def test_chainlit_submit_guard_blocks_a_replaced_stop_only_during_transition() -
         browser.close()
 
 
+def test_chainlit_reused_submit_becomes_a_named_stop_and_keeps_native_cancellation() -> None:
+    """An ID-only React transition must not leave Stop named as Send."""
+
+    navigation = (ROOT / "public" / "chat-navigation.js").read_text(encoding="utf-8")
+    markup = '<button id="chat-submit" type="button" aria-label="Send message">Send</button>'
+
+    with sync_playwright() as browser_driver:
+        browser = browser_driver.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(markup)
+        page.evaluate(
+            """() => {
+                window.fetch = async () => ({ ok: true, json: async () => ({ items: [] }) });
+                window.stopEvents = 0;
+                document.querySelector('#chat-submit').addEventListener('click', (event) => {
+                  const button = event.currentTarget;
+                  window.setTimeout(() => {
+                    button.setAttribute('aria-label', 'Send message');
+                    window.setTimeout(() => {
+                      button.id = 'stop-button';
+                      button.textContent = 'Stop';
+                      button.addEventListener('click', (stopEvent) => {
+                        if (!stopEvent.defaultPrevented) window.stopEvents += 1;
+                      });
+                    }, 25);
+                  }, 0);
+                }, { once: true });
+            }"""
+        )
+        page.add_script_tag(content=navigation)
+
+        page.locator("#chat-submit").click()
+        stop = page.locator("#stop-button")
+        stop.wait_for()
+        page.wait_for_timeout(50)
+        assert stop.get_attribute("aria-label") == "Stop response"
+
+        stop.click()
+        assert page.evaluate("window.stopEvents") == 0
+        page.wait_for_timeout(900)
+        stop.click()
+        assert page.evaluate("window.stopEvents") == 1
+        browser.close()
+
+
 def test_admin_activity_script_localizes_marked_time_without_losing_exact_value() -> None:
     """Removing client localization must expose the fixed server UTC label again."""
 

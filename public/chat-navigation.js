@@ -220,7 +220,7 @@
     });
     observer.observe(document.body, {
       attributes: true,
-      attributeFilter: ["aria-label", "role"],
+      attributeFilter: ["aria-label", "id", "role"],
       childList: true,
       subtree: true,
     });
