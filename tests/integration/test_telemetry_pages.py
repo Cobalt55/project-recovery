@@ -230,11 +230,35 @@ def test_activity_pages_keep_exact_timestamps_and_support_bounded_navigation() -
 
     assert prompt_response.status_code == tool_response.status_code == 200
     for content in (prompt_response.text, tool_response.text):
-        assert '<time datetime="2026-08-12T00:00:00+00:00">' in content
+        assert "<time data-local-time" in content
+        assert 'datetime="2026-08-12T00:00:00+00:00"' in content
+        assert 'title="2026-08-12T00:00:00+00:00"' in content
         assert 'data-copy-value="trace-safe"' in content
         assert "Previous" in content
         assert "limit=100" in content
     assert telemetry.limits[-2:] == [101, 101]
+
+
+def test_activity_pages_make_every_exposed_identifier_copyable() -> None:
+    """Removing any identifier copy control must make the operational page contract fail."""
+
+    client, telemetry, _ = _client()
+    client.cookies.set("project_recovery_session", "admin")
+
+    prompt_response = client.get("/admin/prompt-runs")
+    tool_response = client.get("/admin/tool-use")
+    prompt = telemetry.prompt_runs[0]
+    tool = telemetry.tool_runs[0]
+
+    for value in (
+        str(prompt.id),
+        str(prompt.user_id),
+        str(prompt.conversation_id),
+        prompt.trace_id,
+    ):
+        assert f'data-copy-value="{value}"' in prompt_response.text
+    for value in (str(tool.id), tool.trace_id):
+        assert f'data-copy-value="{value}"' in tool_response.text
 
 
 def test_unhandled_exception_is_recorded_without_leaking_the_api_key() -> None:

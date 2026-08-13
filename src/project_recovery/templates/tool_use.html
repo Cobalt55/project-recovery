@@ -10,11 +10,11 @@
   {% if rows %}<div class="table-wrap"><table>
     <thead><tr><th>Created</th><th>Tool</th><th>Status</th><th>Results</th><th>Trace</th><th>Details</th></tr></thead>
     <tbody>{% for row in rows %}<tr>
-      <td><time datetime="{{ row.created_at.exact }}">{{ row.created_at.display }}</time></td><td>{{ row.name }}<br><span>{{ row.type }}</span></td>
+      <td><time data-local-time datetime="{{ row.created_at.exact }}" title="{{ row.created_at.exact }}">{{ row.created_at.display }}</time></td><td>{{ row.name }}<br><span>{{ row.type }}</span></td>
       <td>{{ row.status }}<br><span>{{ row.duration_ms or 0 }} ms</span></td>
       <td>{{ row.result_count or 0 }}<br><span>{{ row.summary }}</span></td>
       <td><code>{{ row.trace_id }}</code><button class="copy-button" type="button" data-copy-value="{{ row.trace_id }}" aria-label="Copy trace ID">Copy</button></td>
-      <td><details><summary>View bounded data</summary><dl class="record-details"><div><dt>Tool run ID</dt><dd><code>{{ row.id }}</code></dd></div></dl><pre>{{ row.arguments }}</pre><pre>{{ row.output }}</pre></details></td>
+      <td><details><summary>View bounded data</summary><dl class="record-details"><div><dt>Tool run ID</dt><dd><code>{{ row.id }}</code><button class="copy-button" type="button" data-copy-value="{{ row.id }}" aria-label="Copy tool run ID">Copy</button></dd></div></dl><pre>{{ row.arguments }}</pre><pre>{{ row.output }}</pre></details></td>
     </tr>{% endfor %}</tbody>
   </table></div>{% else %}<p class="supporting-copy">No tool calls have been recorded.</p>{% endif %}
   {% if previous_offset is not none or has_next %}<nav class="pagination" aria-label="Tool use pagination">{% if previous_offset is not none %}<a class="button button-quiet" href="?offset={{ previous_offset }}&limit={{ limit }}">Previous</a>{% endif %}{% if has_next %}<a class="button button-quiet" href="?offset={{ next_offset }}&limit={{ limit }}">Next</a>{% endif %}</nav>{% endif %}

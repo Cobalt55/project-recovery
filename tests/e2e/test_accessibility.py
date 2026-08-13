@@ -517,3 +517,73 @@ def test_chainlit_submit_guard_blocks_a_replaced_stop_only_during_transition() -
         page.locator("#stop-button").click()
         assert page.evaluate("window.stopEvents") == 1
         browser.close()
+
+
+def test_admin_activity_script_localizes_marked_time_without_losing_exact_value() -> None:
+    """Removing client localization must expose the fixed server UTC label again."""
+
+    script = (STATIC / "app.js").read_text(encoding="utf-8")
+    exact = "2026-08-12T00:00:00+00:00"
+    markup = (
+        f'<time data-local-time datetime="{exact}" title="{exact}">Aug 12, 2026 00:00 UTC</time>'
+    )
+
+    with sync_playwright() as browser_driver:
+        browser = browser_driver.chromium.launch(headless=True)
+        context = browser.new_context(locale="en-US", timezone_id="America/New_York")
+        page = context.new_page()
+        page.set_content(markup)
+        page.add_script_tag(content=script)
+
+        timestamp = page.locator("time")
+        assert timestamp.inner_text() == "Aug 11, 2026, 8:00 PM"
+        assert timestamp.get_attribute("datetime") == exact
+        assert timestamp.get_attribute("title") == exact
+        browser.close()
+
+
+def test_admin_copy_status_reannounces_identical_success_messages() -> None:
+    """Two successful copy actions must produce two distinct polite announcements."""
+
+    script = (STATIC / "app.js").read_text(encoding="utf-8")
+    markup = '<button type="button" data-copy-value="record-1">Copy</button>'
+
+    with sync_playwright() as browser_driver:
+        browser = browser_driver.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.set_content(markup)
+        page.evaluate(
+            """() => {
+                Object.defineProperty(navigator, 'clipboard', {
+                  configurable: true,
+                  value: { writeText: async () => undefined },
+                });
+                window.pendingAnnouncementFrame = null;
+                window.requestAnimationFrame = (callback) => {
+                  window.pendingAnnouncementFrame = callback;
+                  return 1;
+                };
+            }"""
+        )
+        page.add_script_tag(content=script)
+        button = page.locator("[data-copy-value]")
+        status = page.get_by_role("status")
+
+        button.click()
+        page.wait_for_function("() => window.pendingAnnouncementFrame !== null")
+        assert status.inner_text() == ""
+        page.evaluate(
+            """() => {
+                const callback = window.pendingAnnouncementFrame;
+                window.pendingAnnouncementFrame = null;
+                callback();
+            }"""
+        )
+        assert status.inner_text() == "Copied to clipboard."
+
+        button.click()
+        page.wait_for_function("() => window.pendingAnnouncementFrame !== null")
+        assert status.inner_text() == ""
+        page.evaluate("() => window.pendingAnnouncementFrame()")
+        assert status.inner_text() == "Copied to clipboard."
+        browser.close()

@@ -15,17 +15,37 @@ document.documentElement.classList.add("js-ready");
   copyStatus.setAttribute("aria-live", "polite");
   copyStatus.setAttribute("role", "status");
   document.body.append(copyStatus);
+  const announceCopyStatus = (message) => {
+    copyStatus.textContent = "";
+    window.requestAnimationFrame(() => {
+      copyStatus.textContent = message;
+    });
+  };
   document.addEventListener("click", async (event) => {
     const button = event.target.closest("[data-copy-value]");
     if (!(button instanceof HTMLButtonElement)) return;
     const value = button.dataset.copyValue || "";
     try {
       await navigator.clipboard.writeText(value);
-      copyStatus.textContent = "Copied to clipboard.";
+      announceCopyStatus("Copied to clipboard.");
     } catch {
-      copyStatus.textContent = "Copy unavailable. Select the value to copy it.";
+      announceCopyStatus("Copy unavailable. Select the value to copy it.");
     }
   });
+
+  try {
+    const formatter = new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    document.querySelectorAll("time[data-local-time]").forEach((element) => {
+      const exact = element.getAttribute("datetime");
+      const date = exact ? new Date(exact) : null;
+      if (date && !Number.isNaN(date.getTime())) element.textContent = formatter.format(date);
+    });
+  } catch {
+    // Keep the server-rendered UTC value if browser localization is unavailable.
+  }
 
   const opener = document.querySelector("[data-drawer-open]");
   const drawer = document.querySelector("[data-drawer]");

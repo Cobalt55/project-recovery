@@ -11,13 +11,13 @@
   <div class="table-wrap"><table>
     <thead><tr><th>Started</th><th>Prompt</th><th>Model</th><th>Status</th><th>Usage</th><th>Trace</th><th>Details</th></tr></thead>
     <tbody>{% for row in rows %}<tr>
-      <td><time datetime="{{ row.started_at.exact }}">{{ row.started_at.display }}</time></td>
+      <td><time data-local-time datetime="{{ row.started_at.exact }}" title="{{ row.started_at.exact }}">{{ row.started_at.display }}</time></td>
       <td class="bounded-copy">{{ row.prompt }}</td>
       <td>{{ row.model }}<br><span>{{ row.requested_effort }} → {{ row.effective_effort }}</span></td>
       <td>{{ row.status }}<br><span>{{ row.latency_ms or 0 }} ms</span></td>
       <td>{{ row.total_tokens or 0 }} tokens<br><span>${{ row.estimated_cost or "unpriced" }}</span></td>
       <td><code>{{ row.trace_id }}</code><button class="copy-button" type="button" data-copy-value="{{ row.trace_id }}" aria-label="Copy trace ID">Copy</button></td>
-      <td><details><summary>View identifiers</summary><dl class="record-details"><div><dt>Run ID</dt><dd><code>{{ row.id }}</code></dd></div><div><dt>User ID</dt><dd><code>{{ row.user_id }}</code></dd></div><div><dt>Conversation ID</dt><dd><code>{{ row.conversation_id }}</code></dd></div></dl></details></td>
+      <td><details><summary>View identifiers</summary><dl class="record-details"><div><dt>Run ID</dt><dd><code>{{ row.id }}</code><button class="copy-button" type="button" data-copy-value="{{ row.id }}" aria-label="Copy run ID">Copy</button></dd></div><div><dt>User ID</dt><dd><code>{{ row.user_id }}</code><button class="copy-button" type="button" data-copy-value="{{ row.user_id }}" aria-label="Copy user ID">Copy</button></dd></div><div><dt>Conversation ID</dt><dd><code>{{ row.conversation_id }}</code><button class="copy-button" type="button" data-copy-value="{{ row.conversation_id }}" aria-label="Copy conversation ID">Copy</button></dd></div></dl></details></td>
     </tr>{% endfor %}</tbody>
   </table></div>
   {% else %}<p class="supporting-copy">No prompt runs have been recorded yet.</p>{% endif %}
