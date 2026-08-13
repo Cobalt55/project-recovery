@@ -24,7 +24,16 @@
   };
   const drawerFocusable = (nav) => [
     ...nav.querySelectorAll("button:not([disabled]), a[href]")
-  ].filter((element) => !element.hidden && element.getAttribute("aria-hidden") !== "true");
+  ].filter((element) => {
+    const style = window.getComputedStyle(element);
+    return (
+      !element.hidden &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      style.display !== "none" &&
+      style.visibility !== "hidden" &&
+      element.getClientRects().length > 0
+    );
+  });
 
   const setDrawer = (open, { restoreFocus = true } = {}) => {
     const nav = document.getElementById(NAV_ID);
@@ -196,7 +205,14 @@
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("keydown", (event) => {
       const nav = document.getElementById(NAV_ID);
-      if (!nav || nav.getAttribute("aria-hidden") === "true") return;
+      if (
+        !nav ||
+        !isMobile() ||
+        nav.dataset.prDrawerOpen !== "true" ||
+        nav.getAttribute("aria-hidden") === "true"
+      ) {
+        return;
+      }
       if (event.key === "Escape") {
         setDrawer(false);
         return;

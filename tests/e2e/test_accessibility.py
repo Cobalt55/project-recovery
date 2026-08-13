@@ -291,10 +291,12 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
     stylesheet = (ROOT / "public" / "chat-navigation.css").read_text(encoding="utf-8")
     markup = """
     <button id="sidebar-open"></button>
+    <button id="sidebar-close"></button>
     <input id="thread-search">
     <button id="new-chat"></button>
     <button id="upload-button"></button>
     <button id="chat-submit"></button>
+    <button id="stop-button"></button>
     <button data-testid="user-menu"></button>
     <a href="/thread/duplicate" aria-label="Thread duplicate">
       <button aria-label="Thread duplicate">Open</button>
@@ -340,18 +342,21 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
 
         for selector in (
             "#sidebar-open",
+            "#sidebar-close",
             "#thread-search",
             "#new-chat",
             "#upload-button",
             "#chat-submit",
+            "#stop-button",
             "[data-testid='user-menu']",
         ):
-            assert (
-                page.locator(selector).evaluate(
-                    "element => Number.parseFloat(getComputedStyle(element).minHeight)"
+            for property_name in ("minHeight", "minWidth"):
+                assert (
+                    page.locator(selector).evaluate(
+                        f"element => Number.parseFloat(getComputedStyle(element).{property_name})"
+                    )
+                    >= 44
                 )
-                >= 44
-            )
 
         page.evaluate(
             """document.body.insertAdjacentHTML(
@@ -361,12 +366,13 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
         assert (
             page.locator("#chat-settings-open-modal").get_attribute("aria-label") == "Chat settings"
         )
-        assert (
-            page.locator("#chat-settings-open-modal").evaluate(
-                "element => Number.parseFloat(getComputedStyle(element).minHeight)"
+        for property_name in ("minHeight", "minWidth"):
+            assert (
+                page.locator("#chat-settings-open-modal").evaluate(
+                    f"element => Number.parseFloat(getComputedStyle(element).{property_name})"
+                )
+                >= 44
             )
-            >= 44
-        )
 
         submit = page.locator("#chat-submit")
         submit.click()
@@ -397,4 +403,22 @@ def test_chainlit_workspace_shim_behaves_safely_for_native_and_dynamic_controls(
         page.mouse.click(350, 300)
         assert nav.get_attribute("aria-hidden") == "true"
         assert toggle.evaluate("element => document.activeElement === element")
+
+        page.evaluate(
+            "document.body.insertAdjacentHTML('beforeend', '<button id=\"main-after\"></button>')"
+        )
+        page.set_viewport_size({"width": 1024, "height": 720})
+        page.wait_for_function(
+            """() => {
+                const nav = document.querySelector('#project-recovery-nav');
+                return nav?.getAttribute('aria-hidden') === 'false' && !nav?.hasAttribute('inert');
+            }"""
+        )
+        last_link.focus()
+        page.keyboard.press("Tab")
+        assert page.locator("#chat-settings-open-modal").evaluate(
+            "element => document.activeElement === element"
+        )
+        page.keyboard.press("Tab")
+        assert page.locator("#main-after").evaluate("element => document.activeElement === element")
         browser.close()
