@@ -22,5 +22,9 @@ jobs:
         run: pytest -q
       - name: Lint
         run: ruff check src tests
+      - name: Format check
+        run: ruff format --check src tests scripts
       - name: Type check
         run: mypy src
+      - name: Build package
+        run: python -m build

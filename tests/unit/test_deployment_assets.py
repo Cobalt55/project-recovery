@@ -142,17 +142,28 @@ def test_startup_validation_confirms_migrations_precede_the_server() -> None:
 
 
 def test_workflows_use_oidc_and_the_deployment_workflow_checks_health() -> None:
-    """Catch a workflow regression to static credentials or blind deployment."""
+    """Catch workflow regressions to quality gates, OIDC, or blind deployment."""
 
     deploy = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
     tests = (ROOT / ".github" / "workflows" / "test.yml").read_text(encoding="utf-8")
 
+    required_quality_gates = (
+        "pytest -q",
+        "ruff check src tests",
+        "ruff format --check src tests scripts",
+        "mypy src",
+        "python -m build",
+    )
+    for workflow in (tests, deploy):
+        for gate in required_quality_gates:
+            assert gate in workflow
+
     assert "id-token: write" in deploy
     assert "azure/login@v2" in deploy
+    assert "azure/webapps-deploy@v3" in deploy
+    assert "app-name: ${{ vars.AZURE_WEBAPP_NAME }}" in deploy
+    assert "package: ." in deploy
     assert "health/ready" in deploy
-    assert "pytest" in tests
-    assert "ruff check" in tests
-    assert "mypy src" in tests
 
 
 def test_deployment_uses_private_postgres_networking_and_packages_web_assets() -> None:

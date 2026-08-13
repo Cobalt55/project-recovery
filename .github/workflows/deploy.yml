@@ -28,7 +28,9 @@ jobs:
         run: |
           pytest -q
           ruff check src tests
+          ruff format --check src tests scripts
           mypy src
+          python -m build
       - name: Azure OIDC login
         uses: azure/login@v2
         with:
