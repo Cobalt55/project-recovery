@@ -82,6 +82,40 @@ def test_approved_wrapper_resolves_from_the_git_common_repository(tmp_path: Path
     assert Path(completed.stdout.strip()).resolve() == expected
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL behavior is platform-specific")
+def test_deployment_credential_directory_acl_works_from_pwsh(tmp_path: Path) -> None:
+    """PowerShell 7 must delegate ACL work to the compatible Windows host."""
+
+    pwsh = shutil.which("pwsh")
+    if pwsh is None or shutil.which("powershell.exe") is None:
+        pytest.skip("PowerShell 7 and Windows PowerShell are required")
+    target = tmp_path / "credentials"
+    completed = subprocess.run(
+        [
+            pwsh,
+            "-NoProfile",
+            "-Command",
+            (
+                f". '{ROOT / 'scripts' / 'azure' / 'common.ps1'}'; "
+                "Initialize-PrivateCredentialDirectory "
+                "-CredentialsPath $env:PROJECT_RECOVERY_TEST_CREDENTIALS"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "PROJECT_RECOVERY_TEST_CREDENTIALS": str(target / "bootstrap-credentials.txt"),
+        },
+        timeout=20,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert target.is_dir()
+
+
 def test_startup_validation_confirms_migrations_precede_the_server() -> None:
     """Catch a startup sequence that could serve requests before schema upgrade."""
 

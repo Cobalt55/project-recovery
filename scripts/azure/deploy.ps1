@@ -8,30 +8,6 @@ param(
 
 . (Join-Path $PSScriptRoot "common.ps1")
 
-function Initialize-PrivateCredentialDirectory {
-    param([Parameter(Mandatory)][string]$CredentialsPath)
-
-    $directory = Split-Path -Parent $CredentialsPath
-    New-Item -ItemType Directory -Force -Path $directory | Out-Null
-    if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
-        return
-    }
-    $directoryInfo = [System.IO.DirectoryInfo]::new((Resolve-Path -LiteralPath $directory).Path)
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User
-    $acl = $directoryInfo.GetAccessControl()
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($rule in @($acl.Access)) {
-        [void]$acl.RemoveAccessRuleAll($rule)
-    }
-    $inheritance = "ContainerInherit,ObjectInherit"
-    $rule = New-Object Security.AccessControl.FileSystemAccessRule(
-        $sid, "FullControl", $inheritance, "None", "Allow"
-    )
-    [void]$acl.AddAccessRule($rule)
-    $acl.SetOwner($sid)
-    $directoryInfo.SetAccessControl($acl)
-}
-
 function Receive-BootstrapCredentials {
     param(
         [Parameter(Mandatory)][string]$AzureCli,
